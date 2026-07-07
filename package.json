@@ -1,0 +1,21 @@
+{
+  "name": "browser-history-dashboard",
+  "version": "0.1.0",
+  "description": "Privacy-first desktop browser history visualization dashboard.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [
+    "dashboard",
+    "electron",
+    "privacy"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "electron": "^43.0.0",
+    "sql.js": "^1.13.0"
+  }
+}
