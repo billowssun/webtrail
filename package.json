@@ -5,6 +5,8 @@
   "main": "src/main.js",
   "scripts": {
     "build": "vite build",
+    "check": "npm run typecheck && npm test && npm run build",
+    "dev": "vite --host 127.0.0.1",
     "start": "npm run build && electron .",
     "test": "node --test test/*.test.js",
     "typecheck": "tsc --noEmit"

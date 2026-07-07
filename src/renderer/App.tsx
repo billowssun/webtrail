@@ -4,7 +4,7 @@ import { BarChart, PieChart } from "echarts/charts";
 import { GraphicComponent, GridComponent, TooltipComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import type { EChartsCoreOption } from "echarts/core";
-import type { CalendarDay, BrowserDashboard, DayDigest, RankingItem, TimelineItem } from "./types";
+import type { BrowserDashboard, CalendarDay, DayDigest, RankingItem, ScanResult, TimelineItem } from "./types";
 
 echarts.use([BarChart, PieChart, GridComponent, TooltipComponent, GraphicComponent, CanvasRenderer]);
 
@@ -14,7 +14,7 @@ type StatusTone = "info" | "success" | "warn" | "error";
 const views: Array<{ key: ViewKey; label: string }> = [
   { key: "overview", label: "总览" },
   { key: "sites", label: "网站时长" },
-  { key: "pages", label: "单页占比" },
+  { key: "pages", label: "页面占比" },
   { key: "visits", label: "访问次数" },
   { key: "timeline", label: "时间线" },
   { key: "raw", label: "明细" }
@@ -45,8 +45,11 @@ export default function App() {
   const [monthDays, setMonthDays] = useState<CalendarDay[]>([]);
   const [digest, setDigest] = useState<DayDigest | null>(null);
   const [activeView, setActiveView] = useState<ViewKey>("overview");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isScanning, setIsScanning] = useState(false);
+  const [lastScan, setLastScan] = useState<ScanResult | null>(null);
   const [status, setStatus] = useState<{ message: string; tone: StatusTone }>({
-    message: "就绪。读取浏览记录后，可用按钮切换不同看板。",
+    message: "准备就绪。选择日期后读取浏览记录，所有分析都保存在本机。",
     tone: "info"
   });
 
@@ -75,34 +78,54 @@ export default function App() {
   }, [loadMonth, visibleMonth, visibleYear]);
 
   useEffect(() => {
-    void loadDay(selectedDate).catch((error: Error) => setStatus({ message: `启动失败：${error.message}`, tone: "error" }));
+    void loadDay(selectedDate)
+      .catch((error: Error) => setStatus({ message: `启动失败：${error.message}`, tone: "error" }))
+      .finally(() => setIsLoading(false));
+    // Initial load intentionally uses the boot date only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function scanHistory() {
+    setIsScanning(true);
     setStatus({ message: "正在读取浏览器访问记录...", tone: "info" });
     try {
       const result = await window.dashboardApi.scanBrowserHistory(selectedDate);
+      setLastScan(result);
       const errors = result.errors.length ? `；部分失败：${result.errors.join("；")}` : "";
       setStatus({
-        message: `读取完成，共 ${result.visits.length} 条浏览记录${errors}`,
+        message: `读取完成：${result.visits.length} 条记录，来源 ${result.availableBrowsers.length || 0} 个${errors}`,
         tone: result.errors.length ? "warn" : "success"
       });
       await loadMonth(visibleYear, visibleMonth);
       await loadDay(selectedDate);
     } catch (error) {
       setStatus({ message: `读取失败：${(error as Error).message}`, tone: "error" });
+    } finally {
+      setIsScanning(false);
     }
   }
 
   async function refreshDashboard() {
-    setStatus({ message: "正在刷新浏览行为看板...", tone: "info" });
+    setIsLoading(true);
+    setStatus({ message: "正在刷新看板...", tone: "info" });
     try {
       await loadDay(selectedDate);
       await loadMonth(visibleYear, visibleMonth);
       setStatus({ message: "看板已刷新。", tone: "success" });
     } catch (error) {
       setStatus({ message: `刷新失败：${(error as Error).message}`, tone: "error" });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function copySummary() {
+    if (!digest) return;
+    try {
+      await navigator.clipboard.writeText(digest.dashboard.summary);
+      setStatus({ message: "当日摘要已复制到剪贴板。", tone: "success" });
+    } catch (error) {
+      setStatus({ message: `复制失败：${(error as Error).message}`, tone: "error" });
     }
   }
 
@@ -119,7 +142,7 @@ export default function App() {
           <div className="brand-mark">W</div>
           <div>
             <h1>Webtrail</h1>
-            <p>浏览历史看板</p>
+            <p>本机浏览历史看板</p>
           </div>
         </section>
 
@@ -134,15 +157,21 @@ export default function App() {
 
         <section className="sync-card">
           <label className="field">
-            <span>当前日期</span>
+            <span>分析日期</span>
             <input type="date" value={selectedDate} onChange={(event) => void loadDay(event.target.value)} />
           </label>
-          <button className="primary-button" onClick={() => void scanHistory()}>
-            读取浏览记录
+          <div className="button-row">
+            <button className="secondary-button" onClick={() => void loadDay(todayIso())} disabled={isScanning}>
+              今天
+            </button>
+            <button className="secondary-button" onClick={() => void refreshDashboard()} disabled={isScanning || isLoading}>
+              刷新
+            </button>
+          </div>
+          <button className="primary-button" onClick={() => void scanHistory()} disabled={isScanning}>
+            {isScanning ? "读取中..." : "读取浏览记录"}
           </button>
-          <button className="secondary-button" onClick={() => void refreshDashboard()}>
-            刷新看板
-          </button>
+          {lastScan ? <ScanMeta result={lastScan} /> : null}
         </section>
 
         <div className="status-banner" data-tone={status.tone}>
@@ -156,22 +185,28 @@ export default function App() {
             <p className="eyebrow">当天浏览行为</p>
             <h2>{selectedDate}</h2>
           </div>
-          <nav className="view-switcher" aria-label="看板视图">
-            {views.map((view) => (
-              <button
-                key={view.key}
-                className="view-button"
-                data-active={String(activeView === view.key)}
-                onClick={() => setActiveView(view.key)}
-              >
-                {view.label}
-              </button>
-            ))}
-          </nav>
+          <div className="header-actions">
+            <button className="ghost-button" onClick={() => void copySummary()} disabled={!digest}>
+              复制摘要
+            </button>
+            <nav className="view-switcher" aria-label="看板视图">
+              {views.map((view) => (
+                <button
+                  key={view.key}
+                  className="view-button"
+                  aria-current={activeView === view.key ? "page" : undefined}
+                  data-active={String(activeView === view.key)}
+                  onClick={() => setActiveView(view.key)}
+                >
+                  {view.label}
+                </button>
+              ))}
+            </nav>
+          </div>
         </header>
 
-        <section className="view-panel">
-          {digest ? <DashboardView dashboard={digest.dashboard} activeView={activeView} setActiveView={setActiveView} /> : null}
+        <section className="view-panel" aria-busy={isLoading}>
+          {isLoading ? <LoadingCard /> : digest ? <DashboardView dashboard={digest.dashboard} activeView={activeView} setActiveView={setActiveView} /> : <EmptyCard title="暂无看板数据" />}
         </section>
       </section>
     </main>
@@ -233,6 +268,15 @@ function CalendarPanel({
   );
 }
 
+function ScanMeta({ result }: { result: ScanResult }) {
+  return (
+    <div className="scan-meta">
+      <span>{result.availableBrowsers.length ? `已识别：${result.availableBrowsers.join("、")}` : "未发现可读取的浏览器历史文件"}</span>
+      {result.errors.length ? <span data-tone="warn">{result.errors.length} 个来源读取失败</span> : null}
+    </div>
+  );
+}
+
 function DashboardView({
   dashboard,
   activeView,
@@ -243,20 +287,17 @@ function DashboardView({
   setActiveView: (view: ViewKey) => void;
 }) {
   if (activeView === "overview") return <Overview dashboard={dashboard} setActiveView={setActiveView} />;
-  if (activeView === "sites") {
-    return <RankingList title="网站浏览时长" items={dashboard.siteDurationRanking} value={(item) => item.durationText} />;
-  }
-  if (activeView === "pages") {
-    return <RankingList title="单网页占比" items={dashboard.pageDurationRanking} value={(item) => `${item.durationText} · ${item.percentage}%`} />;
-  }
+  if (activeView === "sites") return <RankingList title="网站浏览时长" items={dashboard.siteDurationRanking} value={(item) => item.durationText} />;
+  if (activeView === "pages") return <RankingList title="单页面占比" items={dashboard.pageDurationRanking} value={(item) => `${item.durationText} · ${item.percentage}%`} />;
   if (activeView === "visits") return <VisitRankingCard title="网站访问次数" items={dashboard.siteVisitRanking} />;
-  if (activeView === "timeline") return <TimelineCard title="时间线网页" items={dashboard.timeline} />;
+  if (activeView === "timeline") return <TimelineCard title="访问时间线" items={dashboard.timeline} />;
   return <RawTable items={dashboard.rawVisits} />;
 }
 
 function Overview({ dashboard, setActiveView }: { dashboard: BrowserDashboard; setActiveView: (view: ViewKey) => void }) {
   const topSite = dashboard.siteDurationRanking[0];
   const topPage = dashboard.pageDurationRanking[0];
+  const activeHour = dashboard.hourlyDuration.reduce((best, item) => (item.duration > best.duration ? item : best), dashboard.hourlyDuration[0]);
 
   return (
     <div className="dashboard">
@@ -267,8 +308,8 @@ function Overview({ dashboard, setActiveView }: { dashboard: BrowserDashboard; s
       <section className="kpi-grid" aria-label="今日关键指标">
         <KpiCard label="有效浏览时长" value={dashboard.totalDurationText} hint="已校准异常重叠时长" />
         <KpiCard label="浏览记录" value={`${dashboard.visitCount} 条`} hint="按真实访问序列统计" />
-        <KpiCard label="主要网站" value={topSite?.domain || "暂无"} hint={topSite?.durationText || "暂无"} />
-        <KpiCard label="无时长记录" value={`${dashboard.zeroDurationCount} 条`} hint="保留在时间线与明细" />
+        <KpiCard label="主要网站" value={topSite?.domain || "暂无"} hint={topSite?.durationText || "暂无数据"} />
+        <KpiCard label="活跃时段" value={activeHour?.duration ? activeHour.label : "暂无"} hint={activeHour?.durationText || "暂无数据"} />
       </section>
 
       <section className="dashboard-grid">
@@ -290,7 +331,7 @@ function Overview({ dashboard, setActiveView }: { dashboard: BrowserDashboard; s
           <section className="visual-card">
             <div className="card-title">
               <div>
-                <h3>单页占比</h3>
+                <h3>单页面占比</h3>
                 <p>{topPage ? `最高：${topPage.percentage}%` : "暂无页面数据"}</p>
               </div>
               <button className="text-button" onClick={() => setActiveView("pages")}>
@@ -321,7 +362,7 @@ function HourlyChart({ dashboard }: { dashboard: BrowserDashboard }) {
   const unit = dashboard.totalDuration >= 60000 ? "分钟" : "秒";
   const option = useMemo(
     () => ({
-      grid: { top: 18, right: 10, bottom: 24, left: 32 },
+      grid: { top: 18, right: 10, bottom: 24, left: 34 },
       tooltip: {
         trigger: "axis",
         formatter: (params: unknown) => {
@@ -335,14 +376,14 @@ function HourlyChart({ dashboard }: { dashboard: BrowserDashboard }) {
         data: dashboard.hourlyDuration.map((item) => String(item.hour).padStart(2, "0")),
         axisTick: { show: false },
         axisLine: { lineStyle: { color: "#e4e7ec" } },
-        axisLabel: { color: "#98a2b3", interval: 2 }
+        axisLabel: { color: "#667085", interval: 2 }
       },
       yAxis: {
         type: "value",
         minInterval: 1,
         axisLine: { show: false },
         axisTick: { show: false },
-        axisLabel: { color: "#98a2b3" },
+        axisLabel: { color: "#667085" },
         splitLine: { lineStyle: { color: "#eef2f7" } }
       },
       series: [
@@ -350,10 +391,7 @@ function HourlyChart({ dashboard }: { dashboard: BrowserDashboard }) {
           type: "bar",
           name: unit,
           data: dashboard.hourlyDuration.map((item) => Math.round(item.duration / scale)),
-          itemStyle: {
-            color: "#2f6fed",
-            borderRadius: [7, 7, 2, 2]
-          },
+          itemStyle: { color: "#2f6fed", borderRadius: [7, 7, 2, 2] },
           emphasis: { itemStyle: { color: "#1f5fd8" } },
           barMaxWidth: 24
         }
@@ -362,13 +400,14 @@ function HourlyChart({ dashboard }: { dashboard: BrowserDashboard }) {
     [dashboard.hourlyDuration, scale, unit]
   );
 
-  return <Chart option={option} className="chart chart-hourly" />;
+  return dashboard.visitCount ? <Chart option={option} className="chart chart-hourly" /> : <EmptyInline message="读取浏览记录后显示小时分布。" />;
 }
 
 function PageShareChart({ items, totalDurationText }: { items: RankingItem[]; totalDurationText: string }) {
+  const colors = ["#2563eb", "#16a34a", "#f59e0b", "#7c3aed", "#0891b2"];
   const option = useMemo(
     () => ({
-      color: ["#2563eb", "#60a5fa", "#93c5fd", "#bfdbfe", "#dbeafe"],
+      color: colors,
       tooltip: { trigger: "item" },
       series: [
         {
@@ -388,15 +427,17 @@ function PageShareChart({ items, totalDurationText }: { items: RankingItem[]; to
     [items, totalDurationText]
   );
 
+  if (!items.length) return <EmptyInline message="暂无可展示的页面占比。" />;
+
   return (
     <div className="share-body">
       <Chart option={option} className="chart chart-donut" />
       <div className="share-legend">
         {items.map((item, index) => (
           <article key={`${item.domain}-${item.title || index}`}>
-            <i style={{ background: ["#2563eb", "#60a5fa", "#93c5fd", "#bfdbfe", "#dbeafe"][index] }} />
+            <i style={{ background: colors[index] }} />
             <div>
-              <strong title={item.title}>{item.title}</strong>
+              <strong title={item.title || item.domain}>{item.title || item.domain}</strong>
               <small>{item.domain}</small>
             </div>
             <b>{item.percentage}%</b>
@@ -414,11 +455,11 @@ function Chart({ option, className }: { option: EChartsCoreOption; className: st
     if (!ref.current) return undefined;
     const chart = echarts.init(ref.current, undefined, { renderer: "canvas" });
     chart.setOption(option, true);
-    const resize = () => chart.resize();
-    window.addEventListener("resize", resize);
+    const observer = new ResizeObserver(() => chart.resize());
+    observer.observe(ref.current);
 
     return () => {
-      window.removeEventListener("resize", resize);
+      observer.disconnect();
       chart.dispose();
     };
   }, [option]);
@@ -432,7 +473,7 @@ function VisitRankingCard({ title, items, onOpenAll }: { title: string; items: R
       <div className="card-title">
         <div>
           <h3>{title}</h3>
-          <p>看出高频网站，即使时长为 0</p>
+          <p>看出高频网站，即使原始时长为 0 也保留访问次数</p>
         </div>
         {onOpenAll ? (
           <button className="text-button" onClick={onOpenAll}>
@@ -446,7 +487,7 @@ function VisitRankingCard({ title, items, onOpenAll }: { title: string; items: R
 }
 
 function VisitRanking({ items }: { items: RankingItem[] }) {
-  if (!items.length) return <p className="muted">暂无可展示的数据。</p>;
+  if (!items.length) return <EmptyInline message="暂无可展示的访问排行。" />;
   const max = Math.max(...items.map((item) => item.visitCount), 1);
 
   return (
@@ -511,7 +552,7 @@ function TimelineCard({
       <div className="card-title">
         <div>
           <h3>{title}</h3>
-          <p>按真实访问顺序排列</p>
+          <p>按真实访问顺序排列，敏感标题会自动隐藏</p>
         </div>
         {compact && onOpenAll ? (
           <button className="text-button" onClick={onOpenAll}>
@@ -525,7 +566,7 @@ function TimelineCard({
 }
 
 function TimelineList({ items }: { items: TimelineItem[] }) {
-  if (!items.length) return <p className="muted">暂无可展示的数据。</p>;
+  if (!items.length) return <EmptyInline message="暂无可展示的时间线。" />;
 
   return (
     <div className="timeline-visual">
@@ -547,11 +588,23 @@ function TimelineList({ items }: { items: TimelineItem[] }) {
 }
 
 function RawTable({ items }: { items: TimelineItem[] }) {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredItems = normalizedQuery
+    ? items.filter((item) => `${item.title} ${item.domain} ${item.browser || ""} ${item.profile || ""}`.toLowerCase().includes(normalizedQuery))
+    : items;
+
   if (!items.length) return <EmptyCard title="原始访问明细" />;
 
   return (
     <section className="visual-card list-card">
-      <h3>原始访问明细</h3>
+      <div className="table-toolbar">
+        <div>
+          <h3>原始访问明细</h3>
+          <p>{filteredItems.length} 条匹配，最多显示 260 条</p>
+        </div>
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="筛选标题、网站或浏览器" />
+      </div>
       <div className="table-wrap">
         <table>
           <thead>
@@ -564,13 +617,13 @@ function RawTable({ items }: { items: TimelineItem[] }) {
             </tr>
           </thead>
           <tbody>
-            {items.slice(0, 260).map((item) => (
+            {filteredItems.slice(0, 260).map((item) => (
               <tr key={item.id}>
                 <td>{item.timeLabel}</td>
                 <td>{item.domain}</td>
                 <td>{item.title}</td>
                 <td>{item.durationWasCapped ? `${item.durationText}（原始 ${item.rawDurationText}）` : item.durationText}</td>
-                <td>{item.browser || "浏览器"}</td>
+                <td>{[item.browser, item.profile].filter(Boolean).join(" / ") || "浏览器"}</td>
               </tr>
             ))}
           </tbody>
@@ -580,11 +633,25 @@ function RawTable({ items }: { items: TimelineItem[] }) {
   );
 }
 
+function LoadingCard() {
+  return (
+    <section className="visual-card empty-card">
+      <span className="loading-dot" />
+      <h3>正在加载看板</h3>
+      <p className="muted">正在读取本机缓存并生成当天浏览摘要。</p>
+    </section>
+  );
+}
+
+function EmptyInline({ message }: { message: string }) {
+  return <p className="muted empty-inline">{message}</p>;
+}
+
 function EmptyCard({ title }: { title: string }) {
   return (
-    <section className="visual-card">
+    <section className="visual-card empty-card">
       <h3>{title}</h3>
-      <p className="muted">暂无可展示的数据。</p>
+      <p className="muted">暂无可展示的数据。读取浏览记录后再刷新看板。</p>
     </section>
   );
 }

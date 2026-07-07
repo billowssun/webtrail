@@ -4,6 +4,7 @@ const {
   buildBrowserDashboard,
   createDayDigest,
   buildCalendarDays,
+  formatDuration,
 } = require("../src/analyzer");
 
 const visits = [
@@ -155,4 +156,10 @@ test("day digest carries the browser dashboard as primary output", () => {
 
   assert.equal(digest.dashboard.visitCount, 4);
   assert.equal(digest.overview, digest.dashboard.summary);
+});
+
+test("formats user-facing Chinese duration labels", () => {
+  assert.equal(formatDuration(0), "0 秒");
+  assert.equal(formatDuration(65_000), "1 分钟 5 秒");
+  assert.equal(formatDuration(3_660_000), "1 小时 1 分钟");
 });
