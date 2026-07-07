@@ -4,8 +4,10 @@
   "description": "Privacy-first desktop browser history visualization dashboard.",
   "main": "src/main.js",
   "scripts": {
-    "start": "electron .",
-    "test": "node --test test/*.test.js"
+    "build": "vite build",
+    "start": "npm run build && electron .",
+    "test": "node --test test/*.test.js",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "dashboard",
@@ -15,7 +17,17 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "echarts": "^6.1.0",
     "electron": "^43.0.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "sql.js": "^1.13.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.3"
   }
 }

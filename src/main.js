@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs/promises");
 const os = require("os");
@@ -64,13 +64,15 @@ function publicStore(store) {
 }
 
 function createWindow() {
+  Menu.setApplicationMenu(null);
+
   mainWindow = new BrowserWindow({
     width: 1360,
     height: 860,
     minWidth: 1120,
     minHeight: 720,
-    title: "浏览行为看板",
-    backgroundColor: "#f7f2ec",
+    title: "Webtrail 浏览看板",
+    backgroundColor: "#f5f7fb",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -78,7 +80,7 @@ function createWindow() {
     }
   });
 
-  mainWindow.loadFile(path.join(__dirname, "renderer", "index.html"));
+  mainWindow.loadFile(path.join(__dirname, "..", "dist", "renderer", "index.html"));
 }
 
 function getSql() {

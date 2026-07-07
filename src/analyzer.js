@@ -7,8 +7,10 @@ const SENSITIVE_TERMS = [
   "doctor",
   "auth",
   "token",
+  "payment",
   "密码",
   "登录",
+  "登陆",
   "账户",
   "银行",
   "医院",
@@ -75,6 +77,31 @@ function durationMs(value) {
   return Math.max(0, Number(value || 0) / 1000);
 }
 
+function dayBounds(date, now = new Date()) {
+  const [year, month, day] = date.split("-").map(Number);
+  const start = new Date(year, month - 1, day, 0, 0, 0, 0);
+  const endOfDay = new Date(year, month - 1, day, 23, 59, 59, 999);
+  const end = localDateString(now) === date && now < endOfDay ? now : endOfDay;
+  return { start, end };
+}
+
+function attachEffectiveDurations(visits, date, now = new Date()) {
+  const { end } = dayBounds(date, now);
+  return visits.map((visit, index) => {
+    const visitTime = toDate(visit.visitTime);
+    const nextVisitTime = visits[index + 1] ? toDate(visits[index + 1].visitTime) : end;
+    const rawDuration = durationMs(visit.visitDuration);
+    const availableDuration = Math.max(0, Math.min(nextVisitTime.getTime(), end.getTime()) - visitTime.getTime());
+    const effectiveDuration = Math.min(rawDuration, availableDuration);
+    return {
+      ...visit,
+      rawDuration,
+      effectiveDuration,
+      durationWasCapped: rawDuration > effectiveDuration
+    };
+  });
+}
+
 function formatDuration(ms) {
   if (!ms) return "0 秒";
   const totalSeconds = Math.round(ms / 1000);
@@ -110,18 +137,44 @@ function sortRanking(items) {
   });
 }
 
-function buildBrowserDashboard({ date, browserVisits = [] }) {
+function buildHourlyBuckets(visits) {
+  const durationBuckets = Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    label: `${String(hour).padStart(2, "0")}时`,
+    duration: 0,
+    durationText: "0 秒",
+    visitCount: 0
+  }));
+
+  visits.forEach((visit) => {
+    const date = toDate(visit.visitTime);
+    if (!Number.isFinite(date.getTime())) return;
+    const hour = date.getHours();
+    durationBuckets[hour].duration += visit.effectiveDuration;
+    durationBuckets[hour].visitCount += 1;
+  });
+
+  return durationBuckets.map((item) => ({
+    ...item,
+    durationText: formatDuration(item.duration)
+  }));
+}
+
+function buildBrowserDashboard({ date, browserVisits = [], now = new Date() }) {
   const visits = browserVisits
     .map(normalizeVisit)
     .filter((visit) => visit.visitTime && sameLocalDate(visit.visitTime, date))
     .sort((a, b) => toDate(a.visitTime) - toDate(b.visitTime));
 
-  const totalDuration = visits.reduce((sum, visit) => sum + durationMs(visit.visitDuration), 0);
+  const analyzedVisits = attachEffectiveDurations(visits, date, now);
+  const rawTotalDuration = analyzedVisits.reduce((sum, visit) => sum + visit.rawDuration, 0);
+  const totalDuration = analyzedVisits.reduce((sum, visit) => sum + visit.effectiveDuration, 0);
+  const cappedDurationCount = analyzedVisits.filter((visit) => visit.durationWasCapped).length;
   const siteMap = new Map();
   const pageMap = new Map();
 
-  visits.forEach((visit) => {
-    const visitDuration = durationMs(visit.visitDuration);
+  analyzedVisits.forEach((visit) => {
+    const visitDuration = visit.effectiveDuration;
     const siteKey = visit.domain || "未知网站";
     const pageKey = makePageKey(visit);
 
@@ -181,39 +234,47 @@ function buildBrowserDashboard({ date, browserVisits = [] }) {
     }))
     .slice(0, 12);
 
-  const timeline = visits.map((visit) => ({
+  const timeline = analyzedVisits.map((visit) => ({
     id: visit.id,
     time: visit.visitTime,
     timeLabel: formatTime(visit.visitTime),
     domain: visit.domain || "未知网站",
     title: safeTitle(visit),
-    duration: durationMs(visit.visitDuration),
-    durationText: formatDuration(durationMs(visit.visitDuration)),
-    hasDuration: durationMs(visit.visitDuration) > 0,
+    duration: visit.effectiveDuration,
+    durationText: formatDuration(visit.effectiveDuration),
+    rawDuration: visit.rawDuration,
+    rawDurationText: formatDuration(visit.rawDuration),
+    hasDuration: visit.effectiveDuration > 0,
+    durationWasCapped: visit.durationWasCapped,
     browser: visit.browser,
     profile: visit.profile,
     sensitive: isSensitive(visit)
   }));
 
-  const rawVisits = visits.map((visit) => ({
+  const rawVisits = analyzedVisits.map((visit) => ({
     id: visit.id,
     visitTime: visit.visitTime,
     timeLabel: formatTime(visit.visitTime),
     title: safeTitle(visit),
     domain: visit.domain || "未知网站",
-    duration: durationMs(visit.visitDuration),
-    durationText: formatDuration(durationMs(visit.visitDuration)),
+    duration: visit.effectiveDuration,
+    durationText: formatDuration(visit.effectiveDuration),
+    rawDuration: visit.rawDuration,
+    rawDurationText: formatDuration(visit.rawDuration),
+    durationWasCapped: visit.durationWasCapped,
     transition: visit.transition,
     browser: visit.browser,
     profile: visit.profile,
     sensitive: isSensitive(visit)
   }));
 
+  const hourlyDuration = buildHourlyBuckets(analyzedVisits);
   const topSite = siteDurationRanking[0];
   const topPage = pageDurationRanking[0];
-  const zeroDurationCount = visits.filter((visit) => durationMs(visit.visitDuration) === 0).length;
+  const zeroDurationCount = analyzedVisits.filter((visit) => visit.rawDuration === 0).length;
+  const activeHour = hourlyDuration.reduce((best, item) => (item.duration > best.duration ? item : best), hourlyDuration[0]);
   const summary = visits.length
-    ? `${date} 共读取 ${visits.length} 条浏览记录，Chrome 原始时长合计 ${formatDuration(totalDuration)}。${topSite ? `时长最高的网站是 ${topSite.domain}（${topSite.durationText}）。` : ""}${topPage ? `单页占比最高的是「${topPage.title}」。` : ""}${zeroDurationCount ? `另有 ${zeroDurationCount} 条记录没有原始时长。` : ""}`
+    ? `${date} 共读取 ${visits.length} 条浏览记录，有效浏览时长 ${formatDuration(totalDuration)}。${rawTotalDuration > totalDuration ? `已校准 ${cappedDurationCount} 条异常或重叠时长，原始合计 ${formatDuration(rawTotalDuration)}。` : ""}${topSite ? `停留时间最高的网站是 ${topSite.domain}（${topSite.durationText}）。` : ""}${topPage ? `单页占比最高的是《${topPage.title}》。` : ""}${activeHour?.duration ? `浏览最集中的时段是 ${activeHour.label}。` : ""}${zeroDurationCount ? `另有 ${zeroDurationCount} 条记录没有原始时长。` : ""}`
     : `${date} 暂无浏览记录。`;
 
   return {
@@ -221,11 +282,15 @@ function buildBrowserDashboard({ date, browserVisits = [] }) {
     generatedAt: new Date().toISOString(),
     totalDuration,
     totalDurationText: formatDuration(totalDuration),
+    rawTotalDuration,
+    rawTotalDurationText: formatDuration(rawTotalDuration),
+    cappedDurationCount,
     visitCount: visits.length,
     zeroDurationCount,
     siteDurationRanking,
     pageDurationRanking,
     siteVisitRanking,
+    hourlyDuration,
     timeline,
     rawVisits,
     summary

@@ -3,72 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>浏览行为看板</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <title>Webtrail 浏览看板</title>
   </head>
   <body>
-    <main class="app-shell">
-      <aside class="left-pane">
-        <header>
-          <h1>浏览行为看板</h1>
-          <p class="muted">选择日期，切换不同视角查看当天网页浏览行为。</p>
-        </header>
-
-        <div class="month-nav">
-          <button id="prevMonthButton" class="icon-button" aria-label="上个月">‹</button>
-          <strong id="monthTitle"></strong>
-          <button id="nextMonthButton" class="icon-button" aria-label="下个月">›</button>
-        </div>
-        <div class="weekday-row">
-          <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
-        </div>
-        <div id="calendarGrid" class="calendar-grid"></div>
-
-        <section class="panel">
-          <label class="field">
-            <span>日期</span>
-            <input id="dateInput" type="date" />
-          </label>
-          <button id="scanHistoryButton" class="primary-button">读取浏览记录</button>
-          <button id="generateButton" class="primary-button">刷新看板</button>
-        </section>
-
-        <div id="statusBanner" class="status-banner">就绪。</div>
-      </aside>
-
-      <section class="content-pane">
-        <header class="content-header">
-          <div>
-            <p class="eyebrow">当天看板</p>
-            <h2 id="dayTitle">选择日期</h2>
-          </div>
-        </header>
-
-        <section class="summary-line">
-          <strong id="totalDurationText">0 秒</strong>
-          <span id="visitCountText">0 条浏览记录</span>
-          <span id="zeroDurationText">0 条无时长记录</span>
-        </section>
-
-        <nav class="view-switcher" aria-label="看板视图">
-          <button class="view-button" data-view="sites">网站时长</button>
-          <button class="view-button" data-view="pages">单页占比</button>
-          <button class="view-button" data-view="visits">访问次数</button>
-          <button class="view-button" data-view="timeline">时间线</button>
-          <button class="view-button" data-view="raw">明细</button>
-        </nav>
-
-        <section id="viewPanel" class="view-panel"></section>
-      </section>
-    </main>
-
-    <template id="calendarDayTemplate">
-      <button class="calendar-day">
-        <span class="day-number"></span>
-        <span class="day-mark"></span>
-      </button>
-    </template>
-
-    <script src="./renderer.js"></script>
+    <div id="root"></div>
+    <script type="module" src="/main.tsx"></script>
   </body>
 </html>
