@@ -6,3 +6,5 @@ out/
 .DS_Store
 Thumbs.db
 output-ui-*.png
+.design-*.png
+design-qa.md

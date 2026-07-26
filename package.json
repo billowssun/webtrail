@@ -1,31 +1,30 @@
 {
-  "name": "browser-history-dashboard",
-  "version": "0.1.0",
-  "description": "Privacy-first desktop browser history visualization dashboard.",
-  "main": "src/main.js",
+  "name": "webtrail",
+  "version": "2.0.0",
+  "description": "Privacy-first permanent browser history for Chrome.",
   "scripts": {
     "build": "vite build",
     "check": "npm run typecheck && npm test && npm run build",
     "dev": "vite --host 127.0.0.1",
-    "start": "npm run build && electron .",
+    "start": "npm run dev",
+    "pack:extension": "npm run build && powershell -NoProfile -Command \"Compress-Archive -Path dist/extension/* -DestinationPath dist/webtrail-extension.zip -Force\"",
     "test": "node --test test/*.test.js",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
-    "dashboard",
-    "electron",
+    "chrome-extension",
+    "browser-history",
     "privacy"
   ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "echarts": "^6.1.0",
-    "electron": "^43.0.0",
+    "@phosphor-icons/react": "^2.1.10",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "sql.js": "^1.13.0"
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@types/chrome": "^0.2.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",

@@ -1,32 +1,58 @@
-# Webtrail 浏览看板
+# Webtrail
 
-一个本机优先的桌面端浏览历史分析工具。它读取 Chrome / Edge 的本地 History 数据库，按日期生成浏览时长、访问次数、页面占比和时间线看板。
+Webtrail 是一个本地优先的 Chrome 永久历史记录插件。它接管 `chrome://history`，把 Chrome 当前仍可访问的历史导入本地 IndexedDB，之后持续归档新访问。即使从 Chrome 原生历史中删除记录，Webtrail 归档仍会保留，除非你明确执行“从永久归档删除”。
 
-## 运行
+## 核心能力
+
+- 时间线、会话、页面、域名四种浏览方式。
+- 按日期、小时、标题、URL、域名全文筛选。
+- 后台深度导入 Chrome 当前可访问的旧历史，并持续归档新访问。
+- 使用 `unlimitedStorage` 的本地 IndexedDB 永久保存，不上传服务器。
+- 导入旧 Webtrail JSON/CSV，完整备份 JSON，按当前结果导出 CSV。
+- 批量重新打开页面；分别控制“从 Chrome 移除”和“从永久归档删除”。
+- 覆盖 `chrome://history`，也可从扩展图标直接进入。
+
+## 安装
 
 ```powershell
 npm install
-npm start
+npm run build
 ```
 
-## 检查
+然后：
+
+1. 在 Chrome 打开 `chrome://extensions`。
+2. 开启“开发者模式”。
+3. 点击“加载已解压的扩展程序”。
+4. 选择 `dist/extension`。
+
+也可以生成可分发压缩包：
+
+```powershell
+npm run pack:extension
+```
+
+产物为 `dist/webtrail-extension.zip`。
+
+## 开发预览
+
+```powershell
+npm run dev
+```
+
+普通网页预览会写入一组确定性的本地示例数据，便于开发 UI。只有作为 Chrome 扩展加载后，才能访问真实 `chrome.history`。
+
+## 验证
 
 ```powershell
 npm run check
-npm audit --audit-level=moderate
 ```
 
-## 当前能力
+该命令执行 TypeScript 类型检查、扩展架构测试和生产构建。
 
-- 月历选择日期，并标记有浏览记录的日期。
-- 一键读取当天浏览历史，展示可用浏览器来源和部分失败信息。
-- 总览、网站时长、页面占比、访问次数、时间线、原始明细多视图切换。
-- 自动校准异常或重叠浏览时长，保留 0 时长记录的访问次数。
-- 原始明细支持按标题、网站、浏览器来源筛选。
-- 可复制当天摘要，便于粘贴到笔记或日报。
+## 数据边界
 
-## 隐私边界
-
-- 默认只做本地分析，不上传浏览历史。
-- 看板不展示完整 URL 或 query/token 参数。
-- 可能包含账号、登录、银行、医疗、支付等关键词的标题会自动隐藏。
+- Webtrail 只能导入 Chrome 目前仍能提供的历史；已经被 Chrome 清理且没有旧备份的数据无法恢复。
+- 安装后产生的新历史会持续写入独立归档，不受 Chrome 原生历史清理影响。
+- 卸载扩展会删除扩展自己的 IndexedDB。卸载前请在“设置 → 迁移与备份”中导出完整 JSON。
+- 隐身模式被明确禁用；扩展不注入网页、不读取网页正文，也不把历史上传到服务器。

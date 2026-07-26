@@ -1,27 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import * as echarts from "echarts/core";
-import { BarChart, PieChart } from "echarts/charts";
-import { GraphicComponent, GridComponent, TooltipComponent } from "echarts/components";
-import { CanvasRenderer } from "echarts/renderers";
-import type { EChartsCoreOption } from "echarts/core";
-import type { BrowserDashboard, CalendarDay, DayDigest, RankingItem, ScanResult, TimelineItem } from "./types";
+import {
+  Archive, ArrowClockwise, ArrowSquareOut, CalendarBlank, CaretDown, CaretLeft,
+  CaretRight, CaretUp, ChartBar, Check, Clock, ClockCounterClockwise, Database,
+  DotsThree, DownloadSimple, Export, Funnel, GearSix, Globe, HardDrives,
+  ListBullets, MagnifyingGlass, Rows, ShieldCheck, Stack, Tag, Trash,
+  UploadSimple, X
+} from "@phosphor-icons/react";
+import {
+  deleteArchivedVisits, downloadBlob, ensureDemoArchive, exportArchiveJson,
+  faviconUrl, getArchiveStats, getArchiveStatus, importArchiveFile, isExtension,
+  queryVisits, sendExtensionMessage, type ArchivedVisit, type ArchiveStatus
+} from "./archiveDb";
+import {
+  buildSessions, domainRanking, formatDate, formatSpan, formatTime, hourlyCounts,
+  type VisitSession
+} from "./historyModel";
 
-echarts.use([BarChart, PieChart, GridComponent, TooltipComponent, GraphicComponent, CanvasRenderer]);
+type ViewKey = "timeline" | "sessions" | "pages" | "search" | "domains" | "settings";
+type Notice = { tone: "info" | "success" | "warning" | "error"; text: string };
 
-type ViewKey = "overview" | "sites" | "pages" | "visits" | "timeline" | "raw";
-type StatusTone = "info" | "success" | "warn" | "error";
+const DAY = 24 * 60 * 60 * 1000;
+const TODAY = localDate(new Date());
+const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
 
-const views: Array<{ key: ViewKey; label: string }> = [
-  { key: "overview", label: "总览" },
-  { key: "sites", label: "网站时长" },
-  { key: "pages", label: "页面占比" },
-  { key: "visits", label: "访问次数" },
-  { key: "timeline", label: "时间线" },
-  { key: "raw", label: "明细" }
-];
-
-function todayIso() {
-  const date = new Date();
+function localDate(value: Date | number) {
+  const date = value instanceof Date ? value : new Date(value);
   return [
     date.getFullYear(),
     String(date.getMonth() + 1).padStart(2, "0"),
@@ -29,629 +32,531 @@ function todayIso() {
   ].join("-");
 }
 
-function monthTitle(year: number, month: number) {
-  return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long" }).format(new Date(year, month - 1, 1));
+function dayRange(date: string) {
+  const start = new Date(`${date}T00:00:00`).getTime();
+  return { startTime: start, endTime: start + DAY };
 }
 
-function splitDate(date: string) {
-  const [year, month] = date.split("-").map(Number);
-  return { year, month };
+function formatBytes(bytes: number) {
+  if (!bytes) return "0 MB";
+  if (bytes < 1024 ** 2) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+}
+
+function transitionText(value: string) {
+  const labels: Record<string, string> = {
+    link: "链接", typed: "手动输入", auto_bookmark: "书签/推荐",
+    auto_subframe: "子框架", manual_subframe: "手动框架", generated: "搜索",
+    auto_toplevel: "自动导航", form_submit: "表单提交", reload: "重新加载",
+    keyword: "关键词", keyword_generated: "关键词生成"
+  };
+  return labels[value] || value || "访问";
 }
 
 export default function App() {
-  const [selectedDate, setSelectedDate] = useState(todayIso());
-  const [visibleYear, setVisibleYear] = useState(() => new Date().getFullYear());
-  const [visibleMonth, setVisibleMonth] = useState(() => new Date().getMonth() + 1);
-  const [monthDays, setMonthDays] = useState<CalendarDay[]>([]);
-  const [digest, setDigest] = useState<DayDigest | null>(null);
-  const [activeView, setActiveView] = useState<ViewKey>("overview");
-  const [isLoading, setIsLoading] = useState(true);
-  const [isScanning, setIsScanning] = useState(false);
-  const [lastScan, setLastScan] = useState<ScanResult | null>(null);
-  const [status, setStatus] = useState<{ message: string; tone: StatusTone }>({
-    message: "准备就绪。选择日期后读取浏览记录，所有分析都保存在本机。",
-    tone: "info"
-  });
+  const [view, setView] = useState<ViewKey>("timeline");
+  const [selectedDate, setSelectedDate] = useState(TODAY);
+  const [calendarMonth, setCalendarMonth] = useState(() => TODAY.slice(0, 7));
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [activeHour, setActiveHour] = useState<number | null>(null);
+  const [visits, setVisits] = useState<ArchivedVisit[]>([]);
+  const [monthVisits, setMonthVisits] = useState<ArchivedVisit[]>([]);
+  const [status, setStatus] = useState<ArchiveStatus>({ phase: "idle" });
+  const [stats, setStats] = useState({ count: 0, oldest: null as number | null, newest: null as number | null, usage: 0, quota: 0 });
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [notice, setNotice] = useState<Notice>({ tone: "info", text: isExtension ? "全部记录只保存在本机。" : "开发预览使用本地示例归档。" });
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const importRef = useRef<HTMLInputElement>(null);
 
-  const loadMonth = useCallback(async (year: number, month: number) => {
-    const days = await window.dashboardApi.getMonth({ year, month });
-    setMonthDays(days);
-  }, []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 220);
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
-  const loadDay = useCallback(
-    async (date: string) => {
-      const { year, month } = splitDate(date);
-      setSelectedDate(date);
-      if (year !== visibleYear || month !== visibleMonth) {
-        setVisibleYear(year);
-        setVisibleMonth(month);
-        await loadMonth(year, month);
+  const refresh = useCallback(() => setRefreshKey((value) => value + 1), []);
+
+  useEffect(() => {
+    void ensureDemoArchive().then(refresh);
+    if (!isExtension) return;
+    const listener = (message: { type?: string; status?: ArchiveStatus }) => {
+      if (message.type === "ARCHIVE_CHANGED") refresh();
+      if (message.type === "ARCHIVE_STATUS_CHANGED" && message.status) {
+        setStatus(message.status);
+        refresh();
       }
-      const result = await window.dashboardApi.getDay(date);
-      setDigest(result.digest);
-    },
-    [loadMonth, visibleMonth, visibleYear]
-  );
-
-  useEffect(() => {
-    void loadMonth(visibleYear, visibleMonth);
-  }, [loadMonth, visibleMonth, visibleYear]);
-
-  useEffect(() => {
-    void loadDay(selectedDate)
-      .catch((error: Error) => setStatus({ message: `启动失败：${error.message}`, tone: "error" }))
-      .finally(() => setIsLoading(false));
-    // Initial load intentionally uses the boot date only.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function scanHistory() {
-    setIsScanning(true);
-    setStatus({ message: "正在读取浏览器访问记录...", tone: "info" });
-    try {
-      const result = await window.dashboardApi.scanBrowserHistory(selectedDate);
-      setLastScan(result);
-      const errors = result.errors.length ? `；部分失败：${result.errors.join("；")}` : "";
-      setStatus({
-        message: `读取完成：${result.visits.length} 条记录，来源 ${result.availableBrowsers.length || 0} 个${errors}`,
-        tone: result.errors.length ? "warn" : "success"
-      });
-      await loadMonth(visibleYear, visibleMonth);
-      await loadDay(selectedDate);
-    } catch (error) {
-      setStatus({ message: `读取失败：${(error as Error).message}`, tone: "error" });
-    } finally {
-      setIsScanning(false);
-    }
-  }
-
-  async function refreshDashboard() {
-    setIsLoading(true);
-    setStatus({ message: "正在刷新看板...", tone: "info" });
-    try {
-      await loadDay(selectedDate);
-      await loadMonth(visibleYear, visibleMonth);
-      setStatus({ message: "看板已刷新。", tone: "success" });
-    } catch (error) {
-      setStatus({ message: `刷新失败：${(error as Error).message}`, tone: "error" });
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  async function copySummary() {
-    if (!digest) return;
-    try {
-      await navigator.clipboard.writeText(digest.dashboard.summary);
-      setStatus({ message: "当日摘要已复制到剪贴板。", tone: "success" });
-    } catch (error) {
-      setStatus({ message: `复制失败：${(error as Error).message}`, tone: "error" });
-    }
-  }
-
-  function shiftMonth(delta: number) {
-    const date = new Date(visibleYear, visibleMonth - 1 + delta, 1);
-    setVisibleYear(date.getFullYear());
-    setVisibleMonth(date.getMonth() + 1);
-  }
-
-  return (
-    <main className="app-shell">
-      <aside className="sidebar">
-        <section className="brand">
-          <div className="brand-mark">W</div>
-          <div>
-            <h1>Webtrail</h1>
-            <p>本机浏览历史看板</p>
-          </div>
-        </section>
-
-        <CalendarPanel
-          days={monthDays}
-          selectedDate={selectedDate}
-          visibleYear={visibleYear}
-          visibleMonth={visibleMonth}
-          onSelectDate={(date) => void loadDay(date)}
-          onShiftMonth={shiftMonth}
-        />
-
-        <section className="sync-card">
-          <label className="field">
-            <span>分析日期</span>
-            <input type="date" value={selectedDate} onChange={(event) => void loadDay(event.target.value)} />
-          </label>
-          <div className="button-row">
-            <button className="secondary-button" onClick={() => void loadDay(todayIso())} disabled={isScanning}>
-              今天
-            </button>
-            <button className="secondary-button" onClick={() => void refreshDashboard()} disabled={isScanning || isLoading}>
-              刷新
-            </button>
-          </div>
-          <button className="primary-button" onClick={() => void scanHistory()} disabled={isScanning}>
-            {isScanning ? "读取中..." : "读取浏览记录"}
-          </button>
-          {lastScan ? <ScanMeta result={lastScan} /> : null}
-        </section>
-
-        <div className="status-banner" data-tone={status.tone}>
-          {status.message}
-        </div>
-      </aside>
-
-      <section className="content-pane">
-        <header className="content-header">
-          <div>
-            <p className="eyebrow">当天浏览行为</p>
-            <h2>{selectedDate}</h2>
-          </div>
-          <div className="header-actions">
-            <button className="ghost-button" onClick={() => void copySummary()} disabled={!digest}>
-              复制摘要
-            </button>
-            <nav className="view-switcher" aria-label="看板视图">
-              {views.map((view) => (
-                <button
-                  key={view.key}
-                  className="view-button"
-                  aria-current={activeView === view.key ? "page" : undefined}
-                  data-active={String(activeView === view.key)}
-                  onClick={() => setActiveView(view.key)}
-                >
-                  {view.label}
-                </button>
-              ))}
-            </nav>
-          </div>
-        </header>
-
-        <section className="view-panel" aria-busy={isLoading}>
-          {isLoading ? <LoadingCard /> : digest ? <DashboardView dashboard={digest.dashboard} activeView={activeView} setActiveView={setActiveView} /> : <EmptyCard title="暂无看板数据" />}
-        </section>
-      </section>
-    </main>
-  );
-}
-
-function CalendarPanel({
-  days,
-  selectedDate,
-  visibleYear,
-  visibleMonth,
-  onSelectDate,
-  onShiftMonth
-}: {
-  days: CalendarDay[];
-  selectedDate: string;
-  visibleYear: number;
-  visibleMonth: number;
-  onSelectDate: (date: string) => void;
-  onShiftMonth: (delta: number) => void;
-}) {
-  const firstWeekday = new Date(visibleYear, visibleMonth - 1, 1).getDay();
-
-  return (
-    <section className="calendar-card">
-      <div className="month-nav">
-        <button className="icon-button" aria-label="上个月" onClick={() => onShiftMonth(-1)}>
-          ‹
-        </button>
-        <strong>{monthTitle(visibleYear, visibleMonth)}</strong>
-        <button className="icon-button" aria-label="下个月" onClick={() => onShiftMonth(1)}>
-          ›
-        </button>
-      </div>
-      <div className="weekday-row">
-        {["日", "一", "二", "三", "四", "五", "六"].map((day) => (
-          <span key={day}>{day}</span>
-        ))}
-      </div>
-      <div className="calendar-grid">
-        {Array.from({ length: firstWeekday }, (_, index) => (
-          <div className="calendar-spacer" key={`spacer-${index}`} />
-        ))}
-        {days.map((day) => (
-          <button
-            key={day.date}
-            className="calendar-day"
-            data-selected={String(day.date === selectedDate)}
-            data-has-signal={String(day.signalCount > 0)}
-            title={`${day.date}，${day.visitCount} 条浏览记录`}
-            onClick={() => onSelectDate(day.date)}
-          >
-            <span className="day-number">{day.day}</span>
-            <span className="day-dot">{day.signalCount ? "•" : ""}</span>
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function ScanMeta({ result }: { result: ScanResult }) {
-  return (
-    <div className="scan-meta">
-      <span>{result.availableBrowsers.length ? `已识别：${result.availableBrowsers.join("、")}` : "未发现可读取的浏览器历史文件"}</span>
-      {result.errors.length ? <span data-tone="warn">{result.errors.length} 个来源读取失败</span> : null}
-    </div>
-  );
-}
-
-function DashboardView({
-  dashboard,
-  activeView,
-  setActiveView
-}: {
-  dashboard: BrowserDashboard;
-  activeView: ViewKey;
-  setActiveView: (view: ViewKey) => void;
-}) {
-  if (activeView === "overview") return <Overview dashboard={dashboard} setActiveView={setActiveView} />;
-  if (activeView === "sites") return <RankingList title="网站浏览时长" items={dashboard.siteDurationRanking} value={(item) => item.durationText} />;
-  if (activeView === "pages") return <RankingList title="单页面占比" items={dashboard.pageDurationRanking} value={(item) => `${item.durationText} · ${item.percentage}%`} />;
-  if (activeView === "visits") return <VisitRankingCard title="网站访问次数" items={dashboard.siteVisitRanking} />;
-  if (activeView === "timeline") return <TimelineCard title="访问时间线" items={dashboard.timeline} />;
-  return <RawTable items={dashboard.rawVisits} />;
-}
-
-function Overview({ dashboard, setActiveView }: { dashboard: BrowserDashboard; setActiveView: (view: ViewKey) => void }) {
-  const topSite = dashboard.siteDurationRanking[0];
-  const topPage = dashboard.pageDurationRanking[0];
-  const activeHour = dashboard.hourlyDuration.reduce((best, item) => (item.duration > best.duration ? item : best), dashboard.hourlyDuration[0]);
-
-  return (
-    <div className="dashboard">
-      <section className="summary-card">
-        <p>{dashboard.summary}</p>
-      </section>
-
-      <section className="kpi-grid" aria-label="今日关键指标">
-        <KpiCard label="有效浏览时长" value={dashboard.totalDurationText} hint="已校准异常重叠时长" />
-        <KpiCard label="浏览记录" value={`${dashboard.visitCount} 条`} hint="按真实访问序列统计" />
-        <KpiCard label="主要网站" value={topSite?.domain || "暂无"} hint={topSite?.durationText || "暂无数据"} />
-        <KpiCard label="活跃时段" value={activeHour?.duration ? activeHour.label : "暂无"} hint={activeHour?.durationText || "暂无数据"} />
-      </section>
-
-      <section className="dashboard-grid">
-        <div className="main-column">
-          <section className="visual-card trend-card">
-            <div className="card-title">
-              <div>
-                <h3>小时浏览强度</h3>
-                <p>按小时汇总当天有效浏览时长</p>
-              </div>
-              <strong>{dashboard.totalDurationText}</strong>
-            </div>
-            <HourlyChart dashboard={dashboard} />
-          </section>
-          <TimelineCard title="最近访问线索" items={dashboard.timeline.slice(0, 5)} compact onOpenAll={() => setActiveView("timeline")} />
-        </div>
-
-        <aside className="side-column">
-          <section className="visual-card">
-            <div className="card-title">
-              <div>
-                <h3>单页面占比</h3>
-                <p>{topPage ? `最高：${topPage.percentage}%` : "暂无页面数据"}</p>
-              </div>
-              <button className="text-button" onClick={() => setActiveView("pages")}>
-                全部
-              </button>
-            </div>
-            <PageShareChart items={dashboard.pageDurationRanking.slice(0, 5)} totalDurationText={dashboard.totalDurationText} />
-          </section>
-          <VisitRankingCard title="访问次数排行" items={dashboard.siteVisitRanking.slice(0, 6)} onOpenAll={() => setActiveView("visits")} />
-        </aside>
-      </section>
-    </div>
-  );
-}
-
-function KpiCard({ label, value, hint }: { label: string; value: string; hint: string }) {
-  return (
-    <article className="kpi-card">
-      <span>{label}</span>
-      <strong title={value}>{value}</strong>
-      <small>{hint}</small>
-    </article>
-  );
-}
-
-function HourlyChart({ dashboard }: { dashboard: BrowserDashboard }) {
-  const scale = dashboard.totalDuration >= 60000 ? 60000 : 1000;
-  const unit = dashboard.totalDuration >= 60000 ? "分钟" : "秒";
-  const option = useMemo(
-    () => ({
-      grid: { top: 18, right: 10, bottom: 24, left: 34 },
-      tooltip: {
-        trigger: "axis",
-        formatter: (params: unknown) => {
-          const point = Array.isArray(params) ? (params[0] as { dataIndex: number }) : ({ dataIndex: 0 } as { dataIndex: number });
-          const item = dashboard.hourlyDuration[point.dataIndex];
-          return `${item.label}<br/>时长：${item.durationText}<br/>访问：${item.visitCount} 次`;
-        }
-      },
-      xAxis: {
-        type: "category",
-        data: dashboard.hourlyDuration.map((item) => String(item.hour).padStart(2, "0")),
-        axisTick: { show: false },
-        axisLine: { lineStyle: { color: "#e4e7ec" } },
-        axisLabel: { color: "#667085", interval: 2 }
-      },
-      yAxis: {
-        type: "value",
-        minInterval: 1,
-        axisLine: { show: false },
-        axisTick: { show: false },
-        axisLabel: { color: "#667085" },
-        splitLine: { lineStyle: { color: "#eef2f7" } }
-      },
-      series: [
-        {
-          type: "bar",
-          name: unit,
-          data: dashboard.hourlyDuration.map((item) => Math.round(item.duration / scale)),
-          itemStyle: { color: "#2f6fed", borderRadius: [7, 7, 2, 2] },
-          emphasis: { itemStyle: { color: "#1f5fd8" } },
-          barMaxWidth: 24
-        }
-      ]
-    }),
-    [dashboard.hourlyDuration, scale, unit]
-  );
-
-  return dashboard.visitCount ? <Chart option={option} className="chart chart-hourly" /> : <EmptyInline message="读取浏览记录后显示小时分布。" />;
-}
-
-function PageShareChart({ items, totalDurationText }: { items: RankingItem[]; totalDurationText: string }) {
-  const colors = ["#2563eb", "#16a34a", "#f59e0b", "#7c3aed", "#0891b2"];
-  const option = useMemo(
-    () => ({
-      color: colors,
-      tooltip: { trigger: "item" },
-      series: [
-        {
-          type: "pie",
-          radius: ["55%", "78%"],
-          center: ["38%", "50%"],
-          avoidLabelOverlap: true,
-          label: { show: false },
-          data: items.map((item) => ({ name: item.title || item.domain, value: item.percentage }))
-        }
-      ],
-      graphic: [
-        { type: "text", left: "31%", top: "43%", style: { text: "总计", fill: "#667085", fontSize: 12, textAlign: "center" } },
-        { type: "text", left: "25%", top: "52%", style: { text: totalDurationText, fill: "#101828", fontSize: 12, fontWeight: 800 } }
-      ]
-    }),
-    [items, totalDurationText]
-  );
-
-  if (!items.length) return <EmptyInline message="暂无可展示的页面占比。" />;
-
-  return (
-    <div className="share-body">
-      <Chart option={option} className="chart chart-donut" />
-      <div className="share-legend">
-        {items.map((item, index) => (
-          <article key={`${item.domain}-${item.title || index}`}>
-            <i style={{ background: colors[index] }} />
-            <div>
-              <strong title={item.title || item.domain}>{item.title || item.domain}</strong>
-              <small>{item.domain}</small>
-            </div>
-            <b>{item.percentage}%</b>
-          </article>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Chart({ option, className }: { option: EChartsCoreOption; className: string }) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!ref.current) return undefined;
-    const chart = echarts.init(ref.current, undefined, { renderer: "canvas" });
-    chart.setOption(option, true);
-    const observer = new ResizeObserver(() => chart.resize());
-    observer.observe(ref.current);
-
-    return () => {
-      observer.disconnect();
-      chart.dispose();
     };
-  }, [option]);
+    chrome.runtime.onMessage.addListener(listener);
+    return () => chrome.runtime.onMessage.removeListener(listener);
+  }, [refresh]);
 
-  return <div ref={ref} className={className} />;
-}
+  useEffect(() => {
+    let canceled = false;
+    async function load() {
+      setLoading(true);
+      try {
+        const range = dayRange(selectedDate);
+        const useArchiveRange = Boolean(debouncedSearch) || view === "search" || view === "domains" || view === "settings";
+        const [nextVisits, nextStatus, nextStats] = await Promise.all([
+          queryVisits({
+            startTime: useArchiveRange ? 0 : range.startTime,
+            endTime: useArchiveRange ? Date.now() + 1 : range.endTime,
+            text: debouncedSearch,
+            limit: useArchiveRange ? 50000 : 20000
+          }),
+          getArchiveStatus(),
+          getArchiveStats()
+        ]);
+        if (!canceled) {
+          setVisits(nextVisits);
+          setStatus(nextStatus);
+          setStats(nextStats);
+        }
+      } catch (error) {
+        if (!canceled) setNotice({ tone: "error", text: `读取归档失败：${(error as Error).message}` });
+      } finally {
+        if (!canceled) setLoading(false);
+      }
+    }
+    void load();
+    return () => { canceled = true; };
+  }, [debouncedSearch, refreshKey, selectedDate, view]);
 
-function VisitRankingCard({ title, items, onOpenAll }: { title: string; items: RankingItem[]; onOpenAll?: () => void }) {
+  useEffect(() => {
+    const [year, month] = calendarMonth.split("-").map(Number);
+    const startTime = new Date(year, month - 1, 1).getTime();
+    const endTime = new Date(year, month, 1).getTime();
+    void queryVisits({ startTime, endTime, limit: 50000 }).then(setMonthVisits);
+  }, [calendarMonth, refreshKey]);
+
+  const dayVisits = useMemo(() => {
+    if (debouncedSearch || view === "search" || view === "domains" || view === "settings") return visits;
+    return activeHour === null
+      ? visits
+      : visits.filter((visit) => new Date(visit.visitTime).getHours() === activeHour);
+  }, [activeHour, debouncedSearch, view, visits]);
+  const sessions = useMemo(() => buildSessions(dayVisits), [dayVisits]);
+  const dayAllHours = useMemo(() => hourlyCounts(visits), [visits]);
+  const ranking = useMemo(() => domainRanking(dayVisits), [dayVisits]);
+  const selectedVisits = useMemo(() => dayVisits.filter((visit) => selected.has(visit.id)), [dayVisits, selected]);
+
+  useEffect(() => {
+    setSelected(new Set());
+  }, [selectedDate, activeHour, debouncedSearch, view]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!sessions.length) return;
+    setExpanded((current) => current.size
+      ? current
+      : new Set(sessions.slice(0, 4).map((session) => session.id)));
+  }, [sessions]);
+
+  function chooseDate(date: string) {
+    setSelectedDate(date);
+    setCalendarMonth(date.slice(0, 7));
+    setActiveHour(null);
+    if (view === "search" || view === "domains" || view === "settings") setView("timeline");
+  }
+
+  function moveDay(offset: number) {
+    const date = new Date(`${selectedDate}T12:00:00`);
+    date.setDate(date.getDate() + offset);
+    chooseDate(localDate(date));
+  }
+
+  function toggleVisit(id: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSession(session: VisitSession) {
+    setSelected((current) => {
+      const next = new Set(current);
+      const everySelected = session.visits.every((visit) => next.has(visit.id));
+      session.visits.forEach((visit) => everySelected ? next.delete(visit.id) : next.add(visit.id));
+      return next;
+    });
+  }
+
+  async function openSelected() {
+    const urls = Array.from(new Set(selectedVisits.map((visit) => visit.url)));
+    if (!urls.length) return;
+    if (isExtension) {
+      await sendExtensionMessage({ type: "OPEN_URLS", urls });
+    } else {
+      urls.slice(0, 3).forEach((url) => window.open(url, "_blank", "noopener"));
+    }
+    setNotice({ tone: "success", text: `已重新打开 ${Math.min(urls.length, 30)} 个页面。` });
+  }
+
+  function exportSelected() {
+    const source = selectedVisits.length ? selectedVisits : dayVisits;
+    const rows = [["时间", "标题", "URL", "域名", "导航类型", "归档来源"]];
+    source.forEach((visit) => rows.push([
+      new Date(visit.visitTime).toISOString(),
+      visit.title,
+      visit.url,
+      visit.domain,
+      visit.transition,
+      visit.source
+    ]));
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\r\n");
+    downloadBlob(`\uFEFF${csv}`, `webtrail-${selectedDate}.csv`, "text/csv;charset=utf-8");
+    setNotice({ tone: "success", text: `已导出 ${source.length} 条记录。` });
+  }
+
+  async function deleteFromChrome() {
+    const source = selectedVisits.length ? selectedVisits : [];
+    const urls = Array.from(new Set(source.filter((visit) => visit.nativePresent).map((visit) => visit.url)));
+    if (!urls.length) return setNotice({ tone: "warning", text: "所选记录已不在 Chrome 原生历史中。" });
+    if (!window.confirm(`从 Chrome 原生历史删除 ${urls.length} 个 URL？永久归档仍会保留。`)) return;
+    const result = await sendExtensionMessage<{ ok: boolean; error?: string }>({ type: "DELETE_NATIVE", urls });
+    setNotice(result.ok ? { tone: "success", text: "已从 Chrome 删除；Webtrail 永久归档仍保留。" } : { tone: "error", text: result.error || "删除失败" });
+    refresh();
+  }
+
+  async function deleteFromArchive() {
+    const ids = selectedVisits.map((visit) => visit.id);
+    if (!ids.length || !window.confirm(`永久删除 ${ids.length} 条 Webtrail 归档？此操作不可恢复。`)) return;
+    await deleteArchivedVisits(ids);
+    setSelected(new Set());
+    setNotice({ tone: "success", text: `已永久删除 ${ids.length} 条归档。` });
+    refresh();
+  }
+
+  async function syncNow() {
+    setSyncing(true);
+    const result = await sendExtensionMessage<{ ok: boolean; error?: string }>({ type: "SYNC_NOW" });
+    setSyncing(false);
+    setNotice(result.ok ? { tone: "success", text: "已同步最近 3 天的 Chrome 历史。" } : { tone: "error", text: result.error || "同步失败" });
+    refresh();
+  }
+
+  async function importFile(file?: File) {
+    if (!file) return;
+    try {
+      const count = await importArchiveFile(file);
+      setNotice({ tone: "success", text: `成功导入 ${count} 条历史归档。` });
+      refresh();
+    } catch (error) {
+      setNotice({ tone: "error", text: `导入失败：${(error as Error).message}` });
+    } finally {
+      if (importRef.current) importRef.current.value = "";
+    }
+  }
+
+  const archiveProgress = status.importStart && status.importCursor
+    ? Math.max(0, Math.min(100, Math.round(((Date.now() - status.importCursor) / (Date.now() - status.importStart)) * 100)))
+    : status.bootstrapComplete ? 100 : 0;
+
   return (
-    <section className="visual-card">
-      <div className="card-title">
-        <div>
-          <h3>{title}</h3>
-          <p>看出高频网站，即使原始时长为 0 也保留访问次数</p>
-        </div>
-        {onOpenAll ? (
-          <button className="text-button" onClick={onOpenAll}>
-            全部
-          </button>
+    <div className="atlas-app">
+      <Sidebar view={view} setView={setView} stats={stats} status={status} />
+      <div className="atlas-main">
+        <Topbar
+          search={search}
+          setSearch={(value) => { setSearch(value); if (value) setView("search"); }}
+          selectedDate={selectedDate}
+          chooseDate={chooseDate}
+          moveDay={moveDay}
+          chooseToday={() => chooseDate(TODAY)}
+          selectedCount={selected.size}
+          onOpen={() => void openSelected()}
+          onExport={exportSelected}
+          onDelete={() => void deleteFromChrome()}
+          moreOpen={moreOpen}
+          setMoreOpen={setMoreOpen}
+          onSync={() => void syncNow()}
+          syncing={syncing}
+          onImport={() => importRef.current?.click()}
+          onExportArchive={() => void exportArchiveJson()}
+          onDeleteArchive={() => void deleteFromArchive()}
+        />
+        <input ref={importRef} className="visually-hidden" type="file" accept=".json,.csv" onChange={(event) => void importFile(event.target.files?.[0])} />
+        <div className="notice-line" data-tone={notice.tone}><ShieldCheck size={14} weight="fill" /><span>{notice.text}</span></div>
+        {view !== "settings" && view !== "domains" ? (
+          <HourScrubber
+            date={selectedDate}
+            buckets={dayAllHours}
+            activeHour={activeHour}
+            onHour={(hour) => setActiveHour((current) => current === hour ? null : hour)}
+          />
         ) : null}
+        <div className="atlas-content">
+          <main className="timeline-pane">
+            {view === "settings" ? (
+              <SettingsPanel stats={stats} status={status} onImport={() => importRef.current?.click()} onExport={() => void exportArchiveJson()} onSync={() => void syncNow()} />
+            ) : view === "domains" ? (
+              <DomainView ranking={ranking} total={dayVisits.length} onDomain={(domain) => { setSearch(domain); setView("search"); }} />
+            ) : view === "pages" || view === "search" ? (
+              <PageList visits={dayVisits} selected={selected} onToggle={toggleVisit} loading={loading} />
+            ) : (
+              <SessionTimeline
+                sessions={sessions}
+                selected={selected}
+                expanded={expanded}
+                setExpanded={setExpanded}
+                onToggleVisit={toggleVisit}
+                onToggleSession={toggleSession}
+                loading={loading}
+                searchMode={Boolean(debouncedSearch)}
+              />
+            )}
+          </main>
+          <RightRail
+            selectedDate={selectedDate}
+            month={calendarMonth}
+            setMonth={setCalendarMonth}
+            monthVisits={monthVisits}
+            chooseDate={chooseDate}
+            stats={stats}
+            status={status}
+            archiveProgress={archiveProgress}
+            visitCount={dayVisits.length}
+            sessions={sessions}
+            ranking={ranking}
+          />
+        </div>
       </div>
-      <VisitRanking items={items} />
-    </section>
-  );
-}
-
-function VisitRanking({ items }: { items: RankingItem[] }) {
-  if (!items.length) return <EmptyInline message="暂无可展示的访问排行。" />;
-  const max = Math.max(...items.map((item) => item.visitCount), 1);
-
-  return (
-    <div className="visit-ranking">
-      {items.map((item) => (
-        <article key={item.domain}>
-          <div>
-            <strong title={item.domain}>{item.domain}</strong>
-            <small>{item.durationText}</small>
-          </div>
-          <span>{item.visitCount}</span>
-          <div className="rank-track">
-            <i style={{ width: `${Math.max(4, Math.round((item.visitCount / max) * 100))}%` }} />
-          </div>
-        </article>
-      ))}
     </div>
   );
 }
 
-function RankingList({ title, items, value }: { title: string; items: RankingItem[]; value: (item: RankingItem) => string }) {
-  if (!items.length) return <EmptyCard title={title} />;
-  const maxPercent = Math.max(...items.map((item) => item.percentage), 1);
-
-  return (
-    <section className="visual-card list-card">
-      <h3>{title}</h3>
-      <div className="bar-list">
-        {items.map((item, index) => (
-          <article className="bar-row" key={`${item.domain}-${item.title || index}`}>
-            <span className="rank">{index + 1}</span>
-            <div className="bar-main">
-              <div className="bar-head">
-                <strong title={item.title || item.domain}>{item.title || item.domain}</strong>
-                <span>{value(item)}</span>
-              </div>
-              <div className="bar-track">
-                <span style={{ width: `${Math.max(2, Math.round((item.percentage / maxPercent) * 100))}%` }} />
-              </div>
-              <small>{item.title ? `${item.domain} · ${item.visitCount} 次访问` : `${item.visitCount} 次访问 · 占总时长 ${item.percentage}%`}</small>
-            </div>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function TimelineCard({
-  title,
-  items,
-  compact,
-  onOpenAll
-}: {
-  title: string;
-  items: TimelineItem[];
-  compact?: boolean;
-  onOpenAll?: () => void;
+function Sidebar({ view, setView, stats, status }: {
+  view: ViewKey;
+  setView: (view: ViewKey) => void;
+  stats: { count: number; oldest: number | null; usage: number };
+  status: ArchiveStatus;
 }) {
-  return (
-    <section className="visual-card timeline-card" data-compact={String(Boolean(compact))}>
-      <div className="card-title">
-        <div>
-          <h3>{title}</h3>
-          <p>按真实访问顺序排列，敏感标题会自动隐藏</p>
-        </div>
-        {compact && onOpenAll ? (
-          <button className="text-button" onClick={onOpenAll}>
-            全部
-          </button>
-        ) : null}
-      </div>
-      <TimelineList items={items} />
-    </section>
-  );
-}
-
-function TimelineList({ items }: { items: TimelineItem[] }) {
-  if (!items.length) return <EmptyInline message="暂无可展示的时间线。" />;
-
-  return (
-    <div className="timeline-visual">
-      {items.map((item) => (
-        <article className="timeline-row" key={item.id}>
-          <time>{item.timeLabel}</time>
-          <span className="timeline-dot" />
-          <div>
-            <strong title={item.title}>{item.title}</strong>
-            <small>
-              {item.domain} · {item.hasDuration ? item.durationText : "无时长记录"}
-              {item.durationWasCapped ? " · 已校准" : ""}
-            </small>
-          </div>
-        </article>
-      ))}
+  const items: Array<{ key: ViewKey; label: string; icon: React.ReactNode; section?: string }> = [
+    { key: "timeline", label: "时间线", icon: <ClockCounterClockwise size={18} /> },
+    { key: "sessions", label: "会话", icon: <Stack size={18} /> },
+    { key: "pages", label: "所有页面", icon: <Rows size={18} /> },
+    { key: "search", label: "搜索历史", icon: <MagnifyingGlass size={18} /> },
+    { key: "domains", label: "按域名", icon: <Globe size={18} />, section: "分析" },
+    { key: "domains", label: "按标签", icon: <Tag size={18} /> },
+    { key: "domains", label: "按类型", icon: <ListBullets size={18} /> },
+    { key: "settings", label: "规则与过滤", icon: <Funnel size={18} />, section: "管理" },
+    { key: "settings", label: "设置", icon: <GearSix size={18} /> }
+  ];
+  return <aside className="atlas-sidebar">
+    <div className="atlas-brand">
+      <img src="./icons/icon-48.png" alt="" />
+      <div><strong>Webtrail</strong><span>本地永久归档 <i data-live={status.phase !== "error"} /></span></div>
     </div>
-  );
+    <nav>
+      <p>浏览</p>
+      {items.map((item, index) => <div key={`${item.label}-${index}`}>
+        {item.section ? <p className="nav-section">{item.section}</p> : null}
+        <button data-active={view === item.key && (index < 5 || item.label === "设置")} onClick={() => setView(item.key)}>
+          {item.icon}<span>{item.label}</span>
+        </button>
+      </div>)}
+    </nav>
+    <div className="archive-summary">
+      <header><ShieldCheck size={19} weight="fill" /><strong>本地永久归档</strong></header>
+      <p>{stats.oldest ? `${formatDate(stats.oldest)} — 今天` : "等待首次导入"}</p>
+      <strong>{stats.count.toLocaleString("zh-CN")} <small>条记录</small></strong>
+      <span>{formatBytes(stats.usage)} · 仅存此设备</span>
+    </div>
+  </aside>;
 }
 
-function RawTable({ items }: { items: TimelineItem[] }) {
-  const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredItems = normalizedQuery
-    ? items.filter((item) => `${item.title} ${item.domain} ${item.browser || ""} ${item.profile || ""}`.toLowerCase().includes(normalizedQuery))
-    : items;
+function Topbar(props: {
+  search: string; setSearch: (value: string) => void; selectedDate: string; chooseDate: (date: string) => void; moveDay: (offset: number) => void;
+  chooseToday: () => void; selectedCount: number; onOpen: () => void; onExport: () => void; onDelete: () => void;
+  moreOpen: boolean; setMoreOpen: (value: boolean) => void; onSync: () => void; syncing: boolean;
+  onImport: () => void; onExportArchive: () => void; onDeleteArchive: () => void;
+}) {
+  return <header className="atlas-topbar">
+    <label className="command-search"><MagnifyingGlass size={18} /><input value={props.search} onChange={(event) => props.setSearch(event.target.value)}
+      placeholder="搜索标题、网址或关键词" autoFocus /><kbd>⌘ K</kbd>{props.search ? <button onClick={() => props.setSearch("")}><X size={14} /></button> : null}</label>
+    <div className="topbar-spacer" />
+    <div className="date-command"><CalendarBlank size={17} /><input type="date" value={props.selectedDate} onChange={(event) => event.target.value && props.chooseDate(event.target.value)} />
+      <button onClick={() => props.moveDay(-1)}><CaretLeft size={16} /></button></div>
+    <button className="top-button" onClick={props.chooseToday}>今天</button>
+    <button className="top-button" disabled={!props.selectedCount} onClick={props.onOpen}><ArrowSquareOut size={16} />打开所选</button>
+    <button className="top-button" onClick={props.onExport}><Export size={16} />导出{props.selectedCount ? ` ${props.selectedCount}` : ""}</button>
+    <button className="top-button danger" disabled={!props.selectedCount} onClick={props.onDelete}><Trash size={16} />从 Chrome 移除</button>
+    <div className="more-wrap"><button className="icon-button" onClick={() => props.setMoreOpen(!props.moreOpen)}><DotsThree size={20} /></button>
+      {props.moreOpen ? <div className="more-menu">
+        <button onClick={props.onSync}><ArrowClockwise size={16} className={props.syncing ? "spin" : ""} />立即同步</button>
+        <button onClick={props.onImport}><UploadSimple size={16} />导入旧归档</button>
+        <button onClick={props.onExportArchive}><DownloadSimple size={16} />备份全部归档</button>
+        <button className="danger" disabled={!props.selectedCount} onClick={props.onDeleteArchive}><Trash size={16} />从永久归档删除</button>
+      </div> : null}
+    </div>
+  </header>;
+}
 
-  if (!items.length) return <EmptyCard title="原始访问明细" />;
+function HourScrubber({ date, buckets, activeHour, onHour }: {
+  date: string; buckets: Array<{ hour: number; count: number }>; activeHour: number | null; onHour: (hour: number) => void;
+}) {
+  const max = Math.max(1, ...buckets.map((bucket) => bucket.count));
+  return <section className="hour-scrubber">
+    <strong>{new Date(`${date}T12:00:00`).toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short" })}</strong>
+    <div className="hour-axis">
+      {buckets.map((bucket) => <button key={bucket.hour} data-active={activeHour === bucket.hour} onClick={() => onHour(bucket.hour)}
+        title={`${String(bucket.hour).padStart(2, "0")}:00 · ${bucket.count} 次访问`}>
+        <i style={{ height: `${Math.max(2, (bucket.count / max) * 30)}px` }} /><span>{bucket.hour % 2 === 0 ? `${String(bucket.hour).padStart(2, "0")}:00` : ""}</span>
+      </button>)}
+    </div>
+    <span className="jump-label"><Clock size={15} />点击跳转到小时</span>
+  </section>;
+}
 
-  return (
-    <section className="visual-card list-card">
-      <div className="table-toolbar">
-        <div>
-          <h3>原始访问明细</h3>
-          <p>{filteredItems.length} 条匹配，最多显示 260 条</p>
+function SessionTimeline({ sessions, selected, expanded, setExpanded, onToggleVisit, onToggleSession, loading, searchMode }: {
+  sessions: VisitSession[]; selected: Set<string>; expanded: Set<string>; setExpanded: React.Dispatch<React.SetStateAction<Set<string>>>;
+  onToggleVisit: (id: string) => void; onToggleSession: (session: VisitSession) => void; loading: boolean; searchMode: boolean;
+}) {
+  if (loading) return <LoadingTimeline />;
+  if (!sessions.length) return <EmptyArchive searchMode={searchMode} />;
+  return <div className="session-timeline">
+    <div className="pane-heading"><div><h1>{searchMode ? "搜索结果" : "会话视图"}</h1><span>{sessions.length} 个会话 · 时间为访问跨度，不代表活跃时长</span></div>
+      <button><Funnel size={15} />筛选</button></div>
+    {sessions.slice(0, 120).map((session) => {
+      const isExpanded = expanded.has(session.id);
+      const everySelected = session.visits.every((visit) => selected.has(visit.id));
+      return <article className="session-block" key={session.id}>
+        <div className="session-time-rail"><strong>{formatTime(session.start)}</strong><i /><span /></div>
+        <div className="session-surface">
+          <header>
+            <button className="check-button" data-checked={everySelected} onClick={() => onToggleSession(session)}>{everySelected ? <Check size={12} weight="bold" /> : null}</button>
+            <div><strong>{session.title}</strong><span>{formatTime(session.start)}–{formatTime(session.end)} · 跨度 {formatSpan(session.span)}</span></div>
+            <small>{session.visits.length} 个页面</small>
+            <button className="collapse-button" onClick={() => setExpanded((current) => {
+              const next = new Set(current); if (next.has(session.id)) next.delete(session.id); else next.add(session.id); return next;
+            })}>{isExpanded ? <CaretUp size={15} /> : <CaretDown size={15} />}</button>
+          </header>
+          {isExpanded ? <div className="session-pages">{session.visits.slice().reverse().map((visit, index, array) =>
+            <VisitRow key={visit.id} visit={visit} selected={selected.has(visit.id)} onToggle={() => onToggleVisit(visit.id)}
+              nextTime={array[index + 1]?.visitTime} />)}</div> : null}
+          {!isExpanded ? <div className="domain-preview">{session.domains.slice(0, 5).map((domain) => <span key={domain}>{domain}</span>)}</div> : null}
         </div>
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="筛选标题、网站或浏览器" />
-      </div>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>时间</th>
-              <th>网站</th>
-              <th>标题</th>
-              <th>时长</th>
-              <th>来源</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredItems.slice(0, 260).map((item) => (
-              <tr key={item.id}>
-                <td>{item.timeLabel}</td>
-                <td>{item.domain}</td>
-                <td>{item.title}</td>
-                <td>{item.durationWasCapped ? `${item.durationText}（原始 ${item.rawDurationText}）` : item.durationText}</td>
-                <td>{[item.browser, item.profile].filter(Boolean).join(" / ") || "浏览器"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
+      </article>;
+    })}
+  </div>;
 }
 
-function LoadingCard() {
-  return (
-    <section className="visual-card empty-card">
-      <span className="loading-dot" />
-      <h3>正在加载看板</h3>
-      <p className="muted">正在读取本机缓存并生成当天浏览摘要。</p>
-    </section>
-  );
+function VisitRow({ visit, selected, onToggle, nextTime }: { visit: ArchivedVisit; selected: boolean; onToggle: () => void; nextTime?: number }) {
+  const gap = nextTime ? Math.max(0, visit.visitTime - nextTime) : 0;
+  const favicon = faviconUrl(visit.url);
+  return <div className="visit-row" data-selected={selected}>
+    <button className="check-button" data-checked={selected} onClick={onToggle}>{selected ? <Check size={12} weight="bold" /> : null}</button>
+    <span className="visit-clock">{formatTime(visit.visitTime)}</span>
+    {favicon ? <img className="favicon" src={favicon} alt="" /> : <span className="favicon fallback">{visit.domain.charAt(0).toUpperCase()}</span>}
+    <a href={visit.url} target="_blank" rel="noreferrer"><strong>{visit.title}</strong><span>{visit.url.replace(/^https?:\/\//, "")}</span></a>
+    <span className="visit-type">{transitionText(visit.transition)}</span>
+    <span className="visit-gap">{gap ? `间隔 ${formatSpan(gap)}` : "会话末项"}</span>
+    <span className="archive-badge" data-native={visit.nativePresent}>{visit.nativePresent ? "Chrome + 归档" : "仅归档"}</span>
+  </div>;
 }
 
-function EmptyInline({ message }: { message: string }) {
-  return <p className="muted empty-inline">{message}</p>;
+function PageList({ visits, selected, onToggle, loading }: { visits: ArchivedVisit[]; selected: Set<string>; onToggle: (id: string) => void; loading: boolean }) {
+  if (loading) return <LoadingTimeline />;
+  if (!visits.length) return <EmptyArchive searchMode />;
+  return <div className="flat-pages">
+    <div className="pane-heading"><div><h1>所有页面</h1><span>{visits.length.toLocaleString("zh-CN")} 条匹配记录</span></div></div>
+    {visits.slice(0, 5000).map((visit) => <VisitRow key={visit.id} visit={visit} selected={selected.has(visit.id)} onToggle={() => onToggle(visit.id)} />)}
+  </div>;
 }
 
-function EmptyCard({ title }: { title: string }) {
-  return (
-    <section className="visual-card empty-card">
-      <h3>{title}</h3>
-      <p className="muted">暂无可展示的数据。读取浏览记录后再刷新看板。</p>
+function DomainView({ ranking, total, onDomain }: { ranking: Array<{ domain: string; count: number }>; total: number; onDomain: (domain: string) => void }) {
+  const max = ranking[0]?.count || 1;
+  return <div className="domain-view">
+    <div className="pane-heading"><div><h1>域名视图</h1><span>{ranking.length} 个域名 · {total.toLocaleString("zh-CN")} 条归档</span></div></div>
+    <div className="domain-table">{ranking.slice(0, 200).map((item, index) => <button key={item.domain} onClick={() => onDomain(item.domain)}>
+      <span>{String(index + 1).padStart(2, "0")}</span><strong>{item.domain}</strong><i><b style={{ width: `${(item.count / max) * 100}%` }} /></i>
+      <em>{item.count.toLocaleString("zh-CN")} 次</em><CaretRight size={15} />
+    </button>)}</div>
+  </div>;
+}
+
+function SettingsPanel({ stats, status, onImport, onExport, onSync }: {
+  stats: { count: number; oldest: number | null; newest: number | null; usage: number; quota: number };
+  status: ArchiveStatus; onImport: () => void; onExport: () => void; onSync: () => void;
+}) {
+  return <div className="settings-view">
+    <div className="pane-heading"><div><h1>归档设置</h1><span>永久归档独立于 Chrome 原生历史</span></div></div>
+    <section><header><Database size={20} /><div><strong>本地 IndexedDB 归档</strong><span>扩展卸载前永久保留，不随 Chrome 清理历史而删除</span></div><b data-good>已启用</b></header>
+      <dl><div><dt>归档记录</dt><dd>{stats.count.toLocaleString("zh-CN")} 条</dd></div><div><dt>覆盖范围</dt><dd>{stats.oldest ? `${formatDate(stats.oldest)} — ${formatDate(stats.newest || Date.now())}` : "暂无"}</dd></div>
+        <div><dt>占用空间</dt><dd>{formatBytes(stats.usage)}</dd></div><div><dt>初次深度导入</dt><dd>{status.bootstrapComplete ? "已完成" : status.phase === "importing" ? "进行中" : "等待"}</dd></div></dl></section>
+    <section><header><HardDrives size={20} /><div><strong>迁移与备份</strong><span>导入旧 Webtrail JSON/CSV，或备份全部永久归档</span></div></header>
+      <div className="settings-actions"><button onClick={onImport}><UploadSimple size={17} />导入归档</button><button onClick={onExport}><DownloadSimple size={17} />备份全部</button>
+        <button onClick={onSync}><ArrowClockwise size={17} />同步最近历史</button></div></section>
+    <section><header><ShieldCheck size={20} /><div><strong>隐私边界</strong><span>不上传记录，不注入网页，不读取页面内容；仅使用 Chrome history 权限</span></div></header></section>
+  </div>;
+}
+
+function RightRail(props: {
+  selectedDate: string; month: string; setMonth: (month: string) => void; monthVisits: ArchivedVisit[];
+  chooseDate: (date: string) => void; stats: { count: number; oldest: number | null; usage: number };
+  status: ArchiveStatus; archiveProgress: number; visitCount: number; sessions: VisitSession[]; ranking: Array<{ domain: string; count: number }>;
+}) {
+  return <aside className="right-rail">
+    <div className="rail-title">时间洞察</div>
+    <CalendarPanel selectedDate={props.selectedDate} month={props.month} setMonth={props.setMonth} visits={props.monthVisits} chooseDate={props.chooseDate} />
+    <section className="rail-card archive-coverage">
+      <header><Archive size={17} /><strong>永久归档覆盖</strong></header>
+      <p>{props.stats.oldest ? `${formatDate(props.stats.oldest)} — 今天` : "正在导入 Chrome 历史"}</p>
+      <div className="coverage-track"><i style={{ width: `${props.archiveProgress}%` }} /></div>
+      <div><span>{props.status.bootstrapComplete ? "深度导入完成" : `深度导入 ${props.archiveProgress}%`}</span><b>{props.stats.count.toLocaleString("zh-CN")} 条</b></div>
+      <small><ShieldCheck size={13} weight="fill" />本地永久存储 · {formatBytes(props.stats.usage)}</small>
     </section>
-  );
+    <section className="rail-card day-summary"><h2>{props.selectedDate.slice(5).replace("-", "月")}日概览</h2>
+      <dl><div><dt>访问量</dt><dd>{props.visitCount}</dd></div><div><dt>独立域名</dt><dd>{props.ranking.length}</dd></div><div><dt>会话</dt><dd>{props.sessions.length}</dd></div>
+        <div><dt>观察跨度</dt><dd>{formatSpan(props.sessions.reduce((sum, session) => sum + session.span, 0))}</dd></div></dl></section>
+    <section className="rail-card top-domains"><header><strong>热门域名</strong><span>Top 8</span></header>
+      {props.ranking.slice(0, 8).map((item, index) => <div key={item.domain}><span><i>{index + 1}</i>{item.domain}</span><b>{item.count}</b></div>)}
+    </section>
+  </aside>;
+}
+
+function CalendarPanel({ selectedDate, month, setMonth, visits, chooseDate }: {
+  selectedDate: string; month: string; setMonth: (month: string) => void; visits: ArchivedVisit[]; chooseDate: (date: string) => void;
+}) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const firstDay = new Date(year, monthNumber - 1, 1);
+  const daysInMonth = new Date(year, monthNumber, 0).getDate();
+  const startOffset = (firstDay.getDay() + 6) % 7;
+  const counts = new Map<string, number>();
+  visits.forEach((visit) => counts.set(localDate(visit.visitTime), (counts.get(localDate(visit.visitTime)) || 0) + 1));
+  const max = Math.max(1, ...counts.values());
+  function moveMonth(offset: number) {
+    const date = new Date(year, monthNumber - 1 + offset, 1);
+    setMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`);
+  }
+  return <section className="calendar-panel">
+    <header><button onClick={() => moveMonth(-1)}><CaretLeft size={15} /></button><strong>{year}年{monthNumber}月</strong><button onClick={() => moveMonth(1)}><CaretRight size={15} /></button></header>
+    <div className="weekday-row">{WEEKDAYS.map((day) => <span key={day}>{day}</span>)}</div>
+    <div className="calendar-grid">
+      {Array.from({ length: startOffset }, (_, index) => <i key={`blank-${index}`} />)}
+      {Array.from({ length: daysInMonth }, (_, index) => {
+        const day = index + 1;
+        const date = `${year}-${String(monthNumber).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+        const count = counts.get(date) || 0;
+        return <button key={date} data-active={date === selectedDate} data-today={date === TODAY} onClick={() => chooseDate(date)}
+          style={{ "--density": count ? 0.18 + (count / max) * 0.82 : 0 } as React.CSSProperties} title={`${date} · ${count} 次`}>
+          {day}
+        </button>;
+      })}
+    </div>
+    <footer><span>少</span>{[.15, .3, .5, .7, 1].map((value) => <i key={value} style={{ "--density": value } as React.CSSProperties} />)}<span>多</span></footer>
+  </section>;
+}
+
+function LoadingTimeline() {
+  return <div className="loading-timeline">{Array.from({ length: 4 }, (_, index) => <div key={index}><i /><span /></div>)}</div>;
+}
+
+function EmptyArchive({ searchMode }: { searchMode: boolean }) {
+  return <div className="empty-archive"><Archive size={36} /><h2>{searchMode ? "没有找到匹配记录" : "这一天还没有归档"}</h2>
+    <p>{searchMode ? "换个关键词，或导入更早的 Webtrail 归档。" : "首次导入会在后台继续运行，之后的新访问会自动永久保存。"}</p></div>;
 }
