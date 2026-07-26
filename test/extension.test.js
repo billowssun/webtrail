@@ -43,6 +43,8 @@ test("extension declares all icon assets", () => {
 
 test("main branch commits are packaged into GitHub Releases", () => {
   assert.match(releaseWorkflow, /branches:\s*\n\s+- main/);
+  assert.match(releaseWorkflow, /actions\/checkout@v5/);
+  assert.match(releaseWorkflow, /actions\/setup-node@v6/);
   assert.match(releaseWorkflow, /npm run check/);
   assert.match(releaseWorkflow, /npm run pack:extension/);
   assert.match(releaseWorkflow, /gh release create/);
