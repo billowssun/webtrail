@@ -14,6 +14,7 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes("node_modules/react") || id.includes("node_modules/react-dom")) return "react";
+          if (id.includes("node_modules/echarts") || id.includes("node_modules/zrender")) return "charts";
           return undefined;
         }
       }

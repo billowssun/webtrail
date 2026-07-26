@@ -1,41 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { EChartsCoreOption as EChartsOption } from "echarts/core";
 import {
-  Archive, ArrowClockwise, ArrowSquareOut, CalendarBlank, CaretDown, CaretLeft,
-  CaretRight, CaretUp, ChartBar, Check, Clock, ClockCounterClockwise, Database,
-  DotsThree, DownloadSimple, Export, Funnel, GearSix, Globe, HardDrives,
-  ListBullets, MagnifyingGlass, Rows, ShieldCheck, Stack, Tag, Trash,
-  UploadSimple, X
+  Archive, ArrowClockwise, ArrowSquareOut, CalendarBlank, CaretLeft, CaretRight,
+  ChartLineUp, ClockCounterClockwise, DownloadSimple, Export, GearSix, Globe,
+  MagnifyingGlass, Moon, Rows, ShieldCheck, Stack, Sun, UploadSimple
 } from "@phosphor-icons/react";
+import Chart from "./Chart";
 import {
-  deleteArchivedVisits, downloadBlob, ensureDemoArchive, exportArchiveJson,
-  faviconUrl, getArchiveStats, getArchiveStatus, importArchiveFile, isExtension,
-  queryVisits, sendExtensionMessage, type ArchivedVisit, type ArchiveStatus
+  downloadBlob, ensureDemoArchive, exportArchiveJson, faviconUrl, getArchiveStats,
+  getArchiveStatus, importArchiveFile, isExtension, queryVisits, sendExtensionMessage,
+  type ArchivedVisit, type ArchiveStatus
 } from "./archiveDb";
+import { buildSessions, domainRanking, formatDate, formatSpan, formatTime } from "./historyModel";
 import {
-  buildSessions, domainRanking, formatDate, formatSpan, formatTime, hourlyCounts,
-  type VisitSession
-} from "./historyModel";
+  DAY, dailySeries, dayStart, localDate, observedSpan, percentChange, shiftDate,
+  sourceGroup, sourceMix, weekdayHourMatrix
+} from "./visualizationModel";
 
-type ViewKey = "timeline" | "sessions" | "pages" | "search" | "domains" | "settings";
-type Notice = { tone: "info" | "success" | "warning" | "error"; text: string };
+type ViewKey = "insights" | "sessions" | "pages" | "domains" | "settings";
+type Theme = "light" | "dark";
+type Filter = { kind: "domain" | "source" | "hour"; value: string } | null;
+type Stats = { count: number; oldest: number | null; newest: number | null; usage: number; quota: number };
 
-const DAY = 24 * 60 * 60 * 1000;
-const TODAY = localDate(new Date());
-const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
-
-function localDate(value: Date | number) {
-  const date = value instanceof Date ? value : new Date(value);
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, "0"),
-    String(date.getDate()).padStart(2, "0")
-  ].join("-");
-}
-
-function dayRange(date: string) {
-  const start = new Date(`${date}T00:00:00`).getTime();
-  return { startTime: start, endTime: start + DAY };
-}
+const TODAY = localDate(Date.now());
+const COLORS = ["#1769e8", "#2dbd8b", "#ffb020", "#23b7c9", "#7c6cf2"];
+const WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
 function formatBytes(bytes: number) {
   if (!bytes) return "0 MB";
@@ -43,520 +32,415 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
 }
 
-function transitionText(value: string) {
-  const labels: Record<string, string> = {
-    link: "链接", typed: "手动输入", auto_bookmark: "书签/推荐",
-    auto_subframe: "子框架", manual_subframe: "手动框架", generated: "搜索",
-    auto_toplevel: "自动导航", form_submit: "表单提交", reload: "重新加载",
-    keyword: "关键词", keyword_generated: "关键词生成"
+function compact(value: number) {
+  return new Intl.NumberFormat("zh-CN", { notation: value >= 10_000 ? "compact" : "standard", maximumFractionDigits: 1 }).format(value);
+}
+
+function fullDate(date: string) {
+  return new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "short" })
+    .format(new Date(`${date}T12:00:00`));
+}
+
+function monthLabel(month: string) {
+  const [year, value] = month.split("-").map(Number);
+  return `${year}年${value}月`;
+}
+
+function calendarCells(month: string) {
+  const [year, value] = month.split("-").map(Number);
+  const first = new Date(year, value - 1, 1);
+  const offset = (first.getDay() + 6) % 7;
+  const start = new Date(year, value - 1, 1 - offset);
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return { date: localDate(date), day: date.getDate(), current: date.getMonth() === value - 1 };
+  });
+}
+
+function themeOption(theme: Theme) {
+  const dark = theme === "dark";
+  return {
+    ink: dark ? "#ecf2fb" : "#172033",
+    muted: dark ? "#8fa0b8" : "#69758a",
+    grid: dark ? "#28354a" : "#e8edf5",
+    tooltip: dark ? "#111827" : "#ffffff",
+    tooltipBorder: dark ? "#344258" : "#dfe5ee"
   };
-  return labels[value] || value || "访问";
 }
 
 export default function App() {
-  const [view, setView] = useState<ViewKey>("timeline");
+  const [view, setView] = useState<ViewKey>("insights");
+  const [theme, setTheme] = useState<Theme>(() => {
+    const saved = localStorage.getItem("webtrail-theme") as Theme | null;
+    return saved || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  });
+  const [rangeDays, setRangeDays] = useState(30);
   const [selectedDate, setSelectedDate] = useState(TODAY);
-  const [calendarMonth, setCalendarMonth] = useState(() => TODAY.slice(0, 7));
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [activeHour, setActiveHour] = useState<number | null>(null);
+  const [calendarMonth, setCalendarMonth] = useState(TODAY.slice(0, 7));
   const [visits, setVisits] = useState<ArchivedVisit[]>([]);
   const [monthVisits, setMonthVisits] = useState<ArchivedVisit[]>([]);
+  const [stats, setStats] = useState<Stats>({ count: 0, oldest: null, newest: null, usage: 0, quota: 0 });
   const [status, setStatus] = useState<ArchiveStatus>({ phase: "idle" });
-  const [stats, setStats] = useState({ count: 0, oldest: null as number | null, newest: null as number | null, usage: 0, quota: 0 });
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<Filter>(null);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [notice, setNotice] = useState<Notice>({ tone: "info", text: isExtension ? "全部记录只保存在本机。" : "开发预览使用本地示例归档。" });
-  const [moreOpen, setMoreOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [toast, setToast] = useState("");
   const importRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 220);
-    return () => window.clearTimeout(timer);
-  }, [search]);
-
   const refresh = useCallback(() => setRefreshKey((value) => value + 1), []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("webtrail-theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     void ensureDemoArchive().then(refresh);
     if (!isExtension) return;
     const listener = (message: { type?: string; status?: ArchiveStatus }) => {
       if (message.type === "ARCHIVE_CHANGED") refresh();
-      if (message.type === "ARCHIVE_STATUS_CHANGED" && message.status) {
-        setStatus(message.status);
-        refresh();
-      }
+      if (message.type === "ARCHIVE_STATUS_CHANGED" && message.status) setStatus(message.status);
     };
     chrome.runtime.onMessage.addListener(listener);
     return () => chrome.runtime.onMessage.removeListener(listener);
   }, [refresh]);
 
   useEffect(() => {
-    let canceled = false;
+    let cancelled = false;
     async function load() {
       setLoading(true);
+      const currentStart = dayStart(shiftDate(selectedDate, -rangeDays + 1));
+      const previousStart = currentStart - rangeDays * DAY;
+      const end = dayStart(selectedDate) + DAY;
       try {
-        const range = dayRange(selectedDate);
-        const useArchiveRange = Boolean(debouncedSearch) || view === "search" || view === "domains" || view === "settings";
-        const [nextVisits, nextStatus, nextStats] = await Promise.all([
-          queryVisits({
-            startTime: useArchiveRange ? 0 : range.startTime,
-            endTime: useArchiveRange ? Date.now() + 1 : range.endTime,
-            text: debouncedSearch,
-            limit: useArchiveRange ? 50000 : 20000
-          }),
-          getArchiveStatus(),
-          getArchiveStats()
+        const [nextVisits, nextStats, nextStatus] = await Promise.all([
+          queryVisits({ startTime: previousStart, endTime: end, limit: 100_000 }),
+          getArchiveStats(),
+          getArchiveStatus()
         ]);
-        if (!canceled) {
+        if (!cancelled) {
           setVisits(nextVisits);
-          setStatus(nextStatus);
           setStats(nextStats);
+          setStatus(nextStatus);
         }
-      } catch (error) {
-        if (!canceled) setNotice({ tone: "error", text: `读取归档失败：${(error as Error).message}` });
       } finally {
-        if (!canceled) setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     void load();
-    return () => { canceled = true; };
-  }, [debouncedSearch, refreshKey, selectedDate, view]);
+    return () => { cancelled = true; };
+  }, [rangeDays, refreshKey, selectedDate]);
 
   useEffect(() => {
     const [year, month] = calendarMonth.split("-").map(Number);
-    const startTime = new Date(year, month - 1, 1).getTime();
-    const endTime = new Date(year, month, 1).getTime();
-    void queryVisits({ startTime, endTime, limit: 50000 }).then(setMonthVisits);
+    void queryVisits({
+      startTime: new Date(year, month - 1, 1).getTime(),
+      endTime: new Date(year, month, 1).getTime(),
+      limit: 100_000
+    }).then(setMonthVisits);
   }, [calendarMonth, refreshKey]);
 
-  const dayVisits = useMemo(() => {
-    if (debouncedSearch || view === "search" || view === "domains" || view === "settings") return visits;
-    return activeHour === null
-      ? visits
-      : visits.filter((visit) => new Date(visit.visitTime).getHours() === activeHour);
-  }, [activeHour, debouncedSearch, view, visits]);
-  const sessions = useMemo(() => buildSessions(dayVisits), [dayVisits]);
-  const dayAllHours = useMemo(() => hourlyCounts(visits), [visits]);
-  const ranking = useMemo(() => domainRanking(dayVisits), [dayVisits]);
-  const selectedVisits = useMemo(() => dayVisits.filter((visit) => selected.has(visit.id)), [dayVisits, selected]);
-
-  useEffect(() => {
-    setSelected(new Set());
-  }, [selectedDate, activeHour, debouncedSearch, view]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!sessions.length) return;
-    setExpanded((current) => current.size
-      ? current
-      : new Set(sessions.slice(0, 4).map((session) => session.id)));
-  }, [sessions]);
-
-  function chooseDate(date: string) {
-    setSelectedDate(date);
-    setCalendarMonth(date.slice(0, 7));
-    setActiveHour(null);
-    if (view === "search" || view === "domains" || view === "settings") setView("timeline");
-  }
-
-  function moveDay(offset: number) {
-    const date = new Date(`${selectedDate}T12:00:00`);
-    date.setDate(date.getDate() + offset);
-    chooseDate(localDate(date));
-  }
-
-  function toggleVisit(id: string) {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
+  const periodStart = dayStart(shiftDate(selectedDate, -rangeDays + 1));
+  const periodEnd = dayStart(selectedDate) + DAY;
+  const currentVisits = useMemo(() => visits.filter((visit) => visit.visitTime >= periodStart && visit.visitTime < periodEnd), [periodEnd, periodStart, visits]);
+  const previousVisits = useMemo(() => visits.filter((visit) => visit.visitTime < periodStart), [periodStart, visits]);
+  const dayVisits = useMemo(() => currentVisits.filter((visit) => localDate(visit.visitTime) === selectedDate), [currentVisits, selectedDate]);
+  const sessions = useMemo(() => buildSessions(currentVisits), [currentVisits]);
+  const daySessions = useMemo(() => buildSessions(dayVisits), [dayVisits]);
+  const ranking = useMemo(() => domainRanking(currentVisits), [currentVisits]);
+  const mix = useMemo(() => sourceMix(currentVisits), [currentVisits]);
+  const trend = useMemo(() => dailySeries(currentVisits, rangeDays, selectedDate), [currentVisits, rangeDays, selectedDate]);
+  const previousTrend = useMemo(() => dailySeries(previousVisits, rangeDays, shiftDate(selectedDate, -rangeDays)), [previousVisits, rangeDays, selectedDate]);
+  const heat = useMemo(() => weekdayHourMatrix(currentVisits), [currentVisits]);
+  const filteredEvidence = useMemo(() => {
+    const text = query.trim().toLowerCase();
+    return currentVisits.filter((visit) => {
+      if (text && !`${visit.title} ${visit.url} ${visit.domain}`.toLowerCase().includes(text)) return false;
+      if (!filter) return true;
+      if (filter.kind === "domain") return visit.domain === filter.value;
+      if (filter.kind === "source") return sourceGroup(visit.transition) === filter.value;
+      return new Date(visit.visitTime).getHours() === Number(filter.value);
     });
-  }
+  }, [currentVisits, filter, query]);
 
-  function toggleSession(session: VisitSession) {
-    setSelected((current) => {
-      const next = new Set(current);
-      const everySelected = session.visits.every((visit) => next.has(visit.id));
-      session.visits.forEach((visit) => everySelected ? next.delete(visit.id) : next.add(visit.id));
-      return next;
-    });
-  }
+  const syncNow = async () => {
+    await sendExtensionMessage({ type: "SYNC_NOW" });
+    setToast("已同步最新 Chrome 历史");
+    refresh();
+  };
 
-  async function openSelected() {
-    const urls = Array.from(new Set(selectedVisits.map((visit) => visit.url)));
-    if (!urls.length) return;
-    if (isExtension) {
-      await sendExtensionMessage({ type: "OPEN_URLS", urls });
-    } else {
-      urls.slice(0, 3).forEach((url) => window.open(url, "_blank", "noopener"));
-    }
-    setNotice({ tone: "success", text: `已重新打开 ${Math.min(urls.length, 30)} 个页面。` });
-  }
-
-  function exportSelected() {
-    const source = selectedVisits.length ? selectedVisits : dayVisits;
-    const rows = [["时间", "标题", "URL", "域名", "导航类型", "归档来源"]];
-    source.forEach((visit) => rows.push([
-      new Date(visit.visitTime).toISOString(),
-      visit.title,
-      visit.url,
-      visit.domain,
-      visit.transition,
-      visit.source
-    ]));
+  const exportCsv = () => {
+    const rows = [["时间", "标题", "URL", "域名", "导航类型"]]
+      .concat(filteredEvidence.map((visit) => [new Date(visit.visitTime).toISOString(), visit.title, visit.url, visit.domain, visit.transition]));
     const csv = rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\r\n");
     downloadBlob(`\uFEFF${csv}`, `webtrail-${selectedDate}.csv`, "text/csv;charset=utf-8");
-    setNotice({ tone: "success", text: `已导出 ${source.length} 条记录。` });
-  }
+    setToast(`已导出 ${filteredEvidence.length} 条记录`);
+  };
 
-  async function deleteFromChrome() {
-    const source = selectedVisits.length ? selectedVisits : [];
-    const urls = Array.from(new Set(source.filter((visit) => visit.nativePresent).map((visit) => visit.url)));
-    if (!urls.length) return setNotice({ tone: "warning", text: "所选记录已不在 Chrome 原生历史中。" });
-    if (!window.confirm(`从 Chrome 原生历史删除 ${urls.length} 个 URL？永久归档仍会保留。`)) return;
-    const result = await sendExtensionMessage<{ ok: boolean; error?: string }>({ type: "DELETE_NATIVE", urls });
-    setNotice(result.ok ? { tone: "success", text: "已从 Chrome 删除；Webtrail 永久归档仍保留。" } : { tone: "error", text: result.error || "删除失败" });
-    refresh();
-  }
-
-  async function deleteFromArchive() {
-    const ids = selectedVisits.map((visit) => visit.id);
-    if (!ids.length || !window.confirm(`永久删除 ${ids.length} 条 Webtrail 归档？此操作不可恢复。`)) return;
-    await deleteArchivedVisits(ids);
-    setSelected(new Set());
-    setNotice({ tone: "success", text: `已永久删除 ${ids.length} 条归档。` });
-    refresh();
-  }
-
-  async function syncNow() {
-    setSyncing(true);
-    const result = await sendExtensionMessage<{ ok: boolean; error?: string }>({ type: "SYNC_NOW" });
-    setSyncing(false);
-    setNotice(result.ok ? { tone: "success", text: "已同步最近 3 天的 Chrome 历史。" } : { tone: "error", text: result.error || "同步失败" });
-    refresh();
-  }
-
-  async function importFile(file?: File) {
+  const importFile = async (file?: File) => {
     if (!file) return;
-    try {
-      const count = await importArchiveFile(file);
-      setNotice({ tone: "success", text: `成功导入 ${count} 条历史归档。` });
-      refresh();
-    } catch (error) {
-      setNotice({ tone: "error", text: `导入失败：${(error as Error).message}` });
-    } finally {
-      if (importRef.current) importRef.current.value = "";
-    }
-  }
-
-  const archiveProgress = status.importStart && status.importCursor
-    ? Math.max(0, Math.min(100, Math.round(((Date.now() - status.importCursor) / (Date.now() - status.importStart)) * 100)))
-    : status.bootstrapComplete ? 100 : 0;
+    const count = await importArchiveFile(file);
+    setToast(`已导入 ${count} 条记录`);
+    refresh();
+  };
 
   return (
-    <div className="atlas-app">
-      <Sidebar view={view} setView={setView} stats={stats} status={status} />
-      <div className="atlas-main">
+    <div className="app-shell">
+      <Sidebar view={view} onView={setView} status={status} />
+      <div className="app-main">
         <Topbar
-          search={search}
-          setSearch={(value) => { setSearch(value); if (value) setView("search"); }}
-          selectedDate={selectedDate}
-          chooseDate={chooseDate}
-          moveDay={moveDay}
-          chooseToday={() => chooseDate(TODAY)}
-          selectedCount={selected.size}
-          onOpen={() => void openSelected()}
-          onExport={exportSelected}
-          onDelete={() => void deleteFromChrome()}
-          moreOpen={moreOpen}
-          setMoreOpen={setMoreOpen}
-          onSync={() => void syncNow()}
-          syncing={syncing}
-          onImport={() => importRef.current?.click()}
-          onExportArchive={() => void exportArchiveJson()}
-          onDeleteArchive={() => void deleteFromArchive()}
+          rangeDays={rangeDays} setRangeDays={setRangeDays}
+          selectedDate={selectedDate} setSelectedDate={(date) => { setSelectedDate(date); setCalendarMonth(date.slice(0, 7)); }}
+          query={query} setQuery={setQuery}
+          theme={theme} toggleTheme={() => setTheme(theme === "light" ? "dark" : "light")}
+          onExport={exportCsv}
         />
-        <input ref={importRef} className="visually-hidden" type="file" accept=".json,.csv" onChange={(event) => void importFile(event.target.files?.[0])} />
-        <div className="notice-line" data-tone={notice.tone}><ShieldCheck size={14} weight="fill" /><span>{notice.text}</span></div>
-        {view !== "settings" && view !== "domains" ? (
-          <HourScrubber
-            date={selectedDate}
-            buckets={dayAllHours}
-            activeHour={activeHour}
-            onHour={(hour) => setActiveHour((current) => current === hour ? null : hour)}
+        {toast ? <button className="toast" onClick={() => setToast("")}><ShieldCheck weight="fill" />{toast}</button> : null}
+        {view === "insights" ? (
+          <Dashboard
+            theme={theme} loading={loading} rangeDays={rangeDays} selectedDate={selectedDate}
+            current={currentVisits} previous={previousVisits} dayVisits={dayVisits}
+            daySessions={daySessions} trend={trend} previousTrend={previousTrend}
+            heat={heat} ranking={ranking} mix={mix}
+            calendarMonth={calendarMonth} setCalendarMonth={setCalendarMonth}
+            monthVisits={monthVisits} chooseDate={(date) => { setSelectedDate(date); setCalendarMonth(date.slice(0, 7)); }}
+            stats={stats} status={status}
+            evidence={filteredEvidence} filter={filter} setFilter={setFilter}
           />
-        ) : null}
-        <div className="atlas-content">
-          <main className="timeline-pane">
-            {view === "settings" ? (
-              <SettingsPanel stats={stats} status={status} onImport={() => importRef.current?.click()} onExport={() => void exportArchiveJson()} onSync={() => void syncNow()} />
-            ) : view === "domains" ? (
-              <DomainView ranking={ranking} total={dayVisits.length} onDomain={(domain) => { setSearch(domain); setView("search"); }} />
-            ) : view === "pages" || view === "search" ? (
-              <PageList visits={dayVisits} selected={selected} onToggle={toggleVisit} loading={loading} />
-            ) : (
-              <SessionTimeline
-                sessions={sessions}
-                selected={selected}
-                expanded={expanded}
-                setExpanded={setExpanded}
-                onToggleVisit={toggleVisit}
-                onToggleSession={toggleSession}
-                loading={loading}
-                searchMode={Boolean(debouncedSearch)}
-              />
-            )}
-          </main>
-          <RightRail
-            selectedDate={selectedDate}
-            month={calendarMonth}
-            setMonth={setCalendarMonth}
-            monthVisits={monthVisits}
-            chooseDate={chooseDate}
-            stats={stats}
-            status={status}
-            archiveProgress={archiveProgress}
-            visitCount={dayVisits.length}
-            sessions={sessions}
-            ranking={ranking}
-          />
-        </div>
+        ) : view === "sessions" ? (
+          <RecordsView title="浏览会话" subtitle={`${rangeDays} 天内共 ${sessions.length} 个会话`} visits={filteredEvidence} mode="sessions" />
+        ) : view === "pages" ? (
+          <RecordsView title="全部记录" subtitle={`当前范围 ${filteredEvidence.length} 次访问`} visits={filteredEvidence} mode="pages" />
+        ) : view === "domains" ? (
+          <DomainView ranking={ranking} total={currentVisits.length} onDomain={(domain) => { setFilter({ kind: "domain", value: domain }); setView("pages"); }} />
+        ) : (
+          <Settings stats={stats} status={status} theme={theme} setTheme={setTheme} onSync={() => void syncNow()} onImport={() => importRef.current?.click()} onExport={() => void exportArchiveJson()} />
+        )}
       </div>
+      <input ref={importRef} hidden type="file" accept=".json,.csv" onChange={(event) => void importFile(event.target.files?.[0])} />
     </div>
   );
 }
 
-function Sidebar({ view, setView, stats, status }: {
-  view: ViewKey;
-  setView: (view: ViewKey) => void;
-  stats: { count: number; oldest: number | null; usage: number };
-  status: ArchiveStatus;
-}) {
-  const items: Array<{ key: ViewKey; label: string; icon: React.ReactNode; section?: string }> = [
-    { key: "timeline", label: "时间线", icon: <ClockCounterClockwise size={18} /> },
-    { key: "sessions", label: "会话", icon: <Stack size={18} /> },
-    { key: "pages", label: "所有页面", icon: <Rows size={18} /> },
-    { key: "search", label: "搜索历史", icon: <MagnifyingGlass size={18} /> },
-    { key: "domains", label: "按域名", icon: <Globe size={18} />, section: "分析" },
-    { key: "domains", label: "按标签", icon: <Tag size={18} /> },
-    { key: "domains", label: "按类型", icon: <ListBullets size={18} /> },
-    { key: "settings", label: "规则与过滤", icon: <Funnel size={18} />, section: "管理" },
-    { key: "settings", label: "设置", icon: <GearSix size={18} /> }
+function Sidebar({ view, onView, status }: { view: ViewKey; onView: (view: ViewKey) => void; status: ArchiveStatus }) {
+  const items: Array<{ key: ViewKey; label: string; icon: React.ReactNode }> = [
+    { key: "insights", label: "洞察", icon: <ChartLineUp /> },
+    { key: "sessions", label: "会话", icon: <Stack /> },
+    { key: "pages", label: "记录", icon: <Rows /> },
+    { key: "domains", label: "域名", icon: <Globe /> },
+    { key: "settings", label: "设置", icon: <GearSix /> }
   ];
-  return <aside className="atlas-sidebar">
-    <div className="atlas-brand">
-      <img src="./icons/icon-48.png" alt="" />
-      <div><strong>Webtrail</strong><span>本地永久归档 <i data-live={status.phase !== "error"} /></span></div>
-    </div>
-    <nav>
-      <p>浏览</p>
-      {items.map((item, index) => <div key={`${item.label}-${index}`}>
-        {item.section ? <p className="nav-section">{item.section}</p> : null}
-        <button data-active={view === item.key && (index < 5 || item.label === "设置")} onClick={() => setView(item.key)}>
-          {item.icon}<span>{item.label}</span>
-        </button>
-      </div>)}
-    </nav>
-    <div className="archive-summary">
-      <header><ShieldCheck size={19} weight="fill" /><strong>本地永久归档</strong></header>
-      <p>{stats.oldest ? `${formatDate(stats.oldest)} — 今天` : "等待首次导入"}</p>
-      <strong>{stats.count.toLocaleString("zh-CN")} <small>条记录</small></strong>
-      <span>{formatBytes(stats.usage)} · 仅存此设备</span>
+  return <aside className="sidebar">
+    <div className="brand"><img src="./icons/icon-48.png" alt="" /><strong>Webtrail</strong></div>
+    <nav>{items.map((item) => <button key={item.key} data-active={view === item.key} onClick={() => onView(item.key)}>{item.icon}<span>{item.label}</span></button>)}</nav>
+    <div className="sync-state" title={status.phase === "error" ? status.error : "本地归档正常"}>
+      <ShieldCheck weight="fill" /><span>数据已归档</span>
     </div>
   </aside>;
 }
 
 function Topbar(props: {
-  search: string; setSearch: (value: string) => void; selectedDate: string; chooseDate: (date: string) => void; moveDay: (offset: number) => void;
-  chooseToday: () => void; selectedCount: number; onOpen: () => void; onExport: () => void; onDelete: () => void;
-  moreOpen: boolean; setMoreOpen: (value: boolean) => void; onSync: () => void; syncing: boolean;
-  onImport: () => void; onExportArchive: () => void; onDeleteArchive: () => void;
+  rangeDays: number; setRangeDays: (value: number) => void; selectedDate: string; setSelectedDate: (date: string) => void;
+  query: string; setQuery: (query: string) => void; theme: Theme; toggleTheme: () => void; onExport: () => void;
 }) {
-  return <header className="atlas-topbar">
-    <label className="command-search"><MagnifyingGlass size={18} /><input value={props.search} onChange={(event) => props.setSearch(event.target.value)}
-      placeholder="搜索标题、网址或关键词" autoFocus /><kbd>⌘ K</kbd>{props.search ? <button onClick={() => props.setSearch("")}><X size={14} /></button> : null}</label>
-    <div className="topbar-spacer" />
-    <div className="date-command"><CalendarBlank size={17} /><input type="date" value={props.selectedDate} onChange={(event) => event.target.value && props.chooseDate(event.target.value)} />
-      <button onClick={() => props.moveDay(-1)}><CaretLeft size={16} /></button></div>
-    <button className="top-button" onClick={props.chooseToday}>今天</button>
-    <button className="top-button" disabled={!props.selectedCount} onClick={props.onOpen}><ArrowSquareOut size={16} />打开所选</button>
-    <button className="top-button" onClick={props.onExport}><Export size={16} />导出{props.selectedCount ? ` ${props.selectedCount}` : ""}</button>
-    <button className="top-button danger" disabled={!props.selectedCount} onClick={props.onDelete}><Trash size={16} />从 Chrome 移除</button>
-    <div className="more-wrap"><button className="icon-button" onClick={() => props.setMoreOpen(!props.moreOpen)}><DotsThree size={20} /></button>
-      {props.moreOpen ? <div className="more-menu">
-        <button onClick={props.onSync}><ArrowClockwise size={16} className={props.syncing ? "spin" : ""} />立即同步</button>
-        <button onClick={props.onImport}><UploadSimple size={16} />导入旧归档</button>
-        <button onClick={props.onExportArchive}><DownloadSimple size={16} />备份全部归档</button>
-        <button className="danger" disabled={!props.selectedCount} onClick={props.onDeleteArchive}><Trash size={16} />从永久归档删除</button>
-      </div> : null}
-    </div>
+  return <header className="topbar">
+    <label className="range-control"><CalendarBlank /><span>近</span>
+      <select value={props.rangeDays} onChange={(event) => props.setRangeDays(Number(event.target.value))}>
+        <option value={7}>7 天</option><option value={30}>30 天</option><option value={90}>90 天</option>
+      </select>
+      <span className="range-dates">{shiftDate(props.selectedDate, -props.rangeDays + 1)} → {props.selectedDate}</span>
+    </label>
+    <label className="search"><MagnifyingGlass /><input value={props.query} onChange={(event) => props.setQuery(event.target.value)} placeholder="搜索域名或页面标题（支持回车）" /></label>
+    <button className="today" onClick={() => props.setSelectedDate(TODAY)}>今天</button>
+    <button className="icon-label" onClick={props.onExport}><DownloadSimple />导出</button>
+    <button className="theme-toggle" onClick={props.toggleTheme} title={props.theme === "light" ? "切换深色模式" : "切换浅色模式"}>
+      {props.theme === "light" ? <Moon /> : <Sun />}
+    </button>
   </header>;
 }
 
-function HourScrubber({ date, buckets, activeHour, onHour }: {
-  date: string; buckets: Array<{ hour: number; count: number }>; activeHour: number | null; onHour: (hour: number) => void;
+function Dashboard(props: {
+  theme: Theme; loading: boolean; rangeDays: number; selectedDate: string;
+  current: ArchivedVisit[]; previous: ArchivedVisit[]; dayVisits: ArchivedVisit[];
+  daySessions: ReturnType<typeof buildSessions>;
+  trend: Array<{ date: string; count: number }>; previousTrend: Array<{ date: string; count: number }>;
+  heat: number[][]; ranking: Array<{ domain: string; count: number }>; mix: Array<{ name: string; value: number }>;
+  calendarMonth: string; setCalendarMonth: (month: string) => void; monthVisits: ArchivedVisit[]; chooseDate: (date: string) => void;
+  stats: Stats; status: ArchiveStatus; evidence: ArchivedVisit[]; filter: Filter; setFilter: (filter: Filter) => void;
 }) {
-  const max = Math.max(1, ...buckets.map((bucket) => bucket.count));
-  return <section className="hour-scrubber">
-    <strong>{new Date(`${date}T12:00:00`).toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short" })}</strong>
-    <div className="hour-axis">
-      {buckets.map((bucket) => <button key={bucket.hour} data-active={activeHour === bucket.hour} onClick={() => onHour(bucket.hour)}
-        title={`${String(bucket.hour).padStart(2, "0")}:00 · ${bucket.count} 次访问`}>
-        <i style={{ height: `${Math.max(2, (bucket.count / max) * 30)}px` }} /><span>{bucket.hour % 2 === 0 ? `${String(bucket.hour).padStart(2, "0")}:00` : ""}</span>
-      </button>)}
-    </div>
-    <span className="jump-label"><Clock size={15} />点击跳转到小时</span>
+  const palette = themeOption(props.theme);
+  const comparison = percentChange(props.current.length, props.previous.length);
+  const average = props.rangeDays ? Math.round(props.current.length / props.rangeDays) : 0;
+  const common = {
+    textStyle: { color: palette.muted, fontFamily: "Segoe UI Variable, Segoe UI, sans-serif" },
+    animationDuration: 420,
+    tooltip: { trigger: "axis", backgroundColor: palette.tooltip, borderColor: palette.tooltipBorder, textStyle: { color: palette.ink } }
+  } as const;
+  const trendOption: EChartsOption = {
+    ...common,
+    grid: { left: 46, right: 16, top: 44, bottom: 34 },
+    legend: { top: 4, left: 0, textStyle: { color: palette.muted }, itemWidth: 18, itemHeight: 2 },
+    xAxis: { type: "category", boundaryGap: false, data: props.trend.map((item) => item.date.slice(5)), axisLine: { lineStyle: { color: palette.grid } }, axisTick: { show: false }, axisLabel: { color: palette.muted, interval: Math.max(0, Math.floor(props.rangeDays / 8) - 1) } },
+    yAxis: { type: "value", splitNumber: 4, axisLabel: { color: palette.muted }, splitLine: { lineStyle: { color: palette.grid } } },
+    series: [
+      { name: "本期访问次数", type: "line", smooth: .25, showSymbol: true, symbolSize: 7, data: props.trend.map((item) => ({ value: item.count, date: item.date })), lineStyle: { width: 2, color: COLORS[0] }, itemStyle: { color: COLORS[0] }, areaStyle: { color: "rgba(23,105,232,.08)" } },
+      { name: "上期访问次数", type: "line", smooth: .25, showSymbol: false, data: props.previousTrend.map((item) => item.count), lineStyle: { width: 1.5, type: "dashed", color: "#8babdc" }, itemStyle: { color: "#8babdc" } },
+      { name: "日均", type: "line", symbol: "none", data: props.trend.map(() => average), lineStyle: { width: 1, type: "dotted", color: "#a6afbd" } }
+    ]
+  };
+  const heatMax = Math.max(...props.heat.map((item) => item[2]), 1);
+  const heatOption: EChartsOption = {
+    ...common,
+    tooltip: { ...common.tooltip, trigger: "item", formatter: (params: unknown) => {
+      const value = (params as { value: number[] }).value;
+      return `${WEEKDAYS[value[1]]} ${String(value[0]).padStart(2, "0")}:00<br/><b>${value[2].toLocaleString("zh-CN")}</b> 次访问`;
+    } },
+    grid: { left: 44, right: 10, top: 8, bottom: 30 },
+    xAxis: { type: "category", data: Array.from({ length: 24 }, (_, i) => i), splitArea: { show: true }, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: palette.muted, interval: 1 } },
+    yAxis: { type: "category", inverse: true, data: WEEKDAYS, splitArea: { show: true }, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: palette.muted } },
+    visualMap: { min: 0, max: heatMax, show: false, inRange: { color: props.theme === "dark" ? ["#17253d", "#165dc2", "#3b8bff"] : ["#eef5ff", "#8ebdff", "#1769e8"] } },
+    series: [{ type: "heatmap", data: props.heat, itemStyle: { borderColor: props.theme === "dark" ? "#101828" : "#fff", borderWidth: 1.5, borderRadius: 2 } }]
+  };
+  const domainOption: EChartsOption = {
+    ...common,
+    tooltip: { ...common.tooltip, trigger: "item" },
+    grid: { left: 126, right: 42, top: 7, bottom: 16 },
+    xAxis: { type: "value", show: false },
+    yAxis: { type: "category", inverse: true, data: props.ranking.slice(0, 8).map((item) => item.domain), axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: palette.ink, width: 108, overflow: "truncate" } },
+    series: [{ type: "bar", data: props.ranking.slice(0, 8).map((item) => item.count), barWidth: 9, itemStyle: { color: COLORS[0], borderRadius: [0, 3, 3, 0] }, label: { show: true, position: "right", color: palette.muted } }]
+  };
+  const sourceOption: EChartsOption = {
+    ...common,
+    color: COLORS,
+    tooltip: { ...common.tooltip, trigger: "item", formatter: "{b}<br/><b>{c}</b> 次 · {d}%" },
+    legend: { bottom: 0, left: "center", icon: "circle", itemWidth: 7, itemHeight: 7, textStyle: { color: palette.muted, fontSize: 10 } },
+    series: [{ type: "pie", radius: ["42%", "68%"], center: ["50%", "42%"], data: props.mix, label: { show: false }, itemStyle: { borderColor: props.theme === "dark" ? "#101827" : "#fff", borderWidth: 2 } }],
+    graphic: [{ type: "text", left: "center", top: "35%", style: { text: `总计\n${compact(props.current.length)}`, align: "center", fill: palette.ink, fontSize: 13, fontWeight: 700, lineHeight: 20 } }]
+  };
+
+  return <div className="dashboard">
+    <main className="dashboard-main">
+      <div className="page-title"><div><h1>浏览洞察</h1><p>你的浏览行为可视化分析</p></div><div className="metric-strip"><span>本期 <b>{compact(props.current.length)}</b></span><span>日均 <b>{compact(average)}</b></span><span className={comparison >= 0 ? "positive" : "negative"}>较上期 <b>{comparison >= 0 ? "↑" : "↓"} {Math.abs(comparison).toFixed(1)}%</b></span></div></div>
+      <section className="panel trend-panel">
+        <PanelTitle title="访问趋势" hint="点击日期查看当天记录" />
+        {props.loading ? <Skeleton /> : <Chart option={trendOption} onClick={(event) => {
+          const date = (event.data as { date?: string } | undefined)?.date;
+          if (date) props.chooseDate(date);
+        }} />}
+      </section>
+      <div className="chart-grid">
+        <section className="panel"><PanelTitle title="按星期 / 小时热力图" hint="点击时段筛选记录" />
+          <Chart option={heatOption} onClick={(event) => {
+            const value = event.value as number[];
+            if (value) props.setFilter({ kind: "hour", value: String(value[0]) });
+          }} />
+        </section>
+        <section className="panel"><PanelTitle title="热门域名 TOP 8" hint="点击域名下钻" />
+          <Chart option={domainOption} onClick={(event) => event.name && props.setFilter({ kind: "domain", value: event.name })} />
+        </section>
+        <section className="panel"><PanelTitle title="导航来源占比" hint="依据 Chrome transition 分类" />
+          <Chart option={sourceOption} onClick={(event) => event.name && props.setFilter({ kind: "source", value: event.name })} />
+        </section>
+      </div>
+      <EvidenceTable visits={props.evidence.slice(0, 7)} filter={props.filter} clearFilter={() => props.setFilter(null)} />
+    </main>
+    <aside className="dashboard-rail">
+      <CalendarHeatmap month={props.calendarMonth} setMonth={props.setCalendarMonth} visits={props.monthVisits} selectedDate={props.selectedDate} chooseDate={props.chooseDate} />
+      <section className="rail-panel day-card">
+        <h3>{fullDate(props.selectedDate)}</h3>
+        <Metric icon={<Rows />} label="访问次数" value={props.dayVisits.length.toLocaleString("zh-CN")} />
+        <Metric icon={<ClockCounterClockwise />} label="会话数" value={props.daySessions.length.toLocaleString("zh-CN")} />
+        <Metric icon={<Globe />} label="独立域名" value={new Set(props.dayVisits.map((visit) => visit.domain)).size.toLocaleString("zh-CN")} />
+        <Metric icon={<ChartLineUp />} label="会话观察跨度" value={formatSpan(observedSpan(props.dayVisits))} />
+        <p className="metric-note">观察跨度按同一会话首末访问计算，不等同于活跃时长。</p>
+      </section>
+      <section className="rail-panel coverage">
+        <header><div><h3>归档覆盖</h3><strong>{props.stats.count ? "100" : "0"}<small>%</small></strong></div><Archive /></header>
+        <p>{props.stats.oldest ? `${formatDate(props.stats.oldest)} 至今` : "等待首次归档"}</p>
+        <div className="progress"><i style={{ width: props.stats.count ? "100%" : "0%" }} /></div>
+        <dl><div><dt>永久记录</dt><dd>{props.stats.count.toLocaleString("zh-CN")}</dd></div><div><dt>本机占用</dt><dd>{formatBytes(props.stats.usage)}</dd></div></dl>
+        <small><ShieldCheck weight="fill" />{props.status.phase === "error" ? "归档需要检查" : "数据仅保存在此设备"}</small>
+      </section>
+    </aside>
+  </div>;
+}
+
+function PanelTitle({ title, hint }: { title: string; hint: string }) {
+  return <header className="panel-title"><div><h2>{title}</h2><span title={hint}>i</span></div><small>{hint}</small></header>;
+}
+
+function Skeleton() {
+  return <div className="skeleton"><i /><i /><i /><i /></div>;
+}
+
+function CalendarHeatmap(props: { month: string; setMonth: (month: string) => void; visits: ArchivedVisit[]; selectedDate: string; chooseDate: (date: string) => void }) {
+  const counts = new Map<string, number>();
+  props.visits.forEach((visit) => {
+    const date = localDate(visit.visitTime);
+    counts.set(date, (counts.get(date) || 0) + 1);
+  });
+  const max = Math.max(...counts.values(), 1);
+  const moveMonth = (offset: number) => {
+    const [year, month] = props.month.split("-").map(Number);
+    const value = new Date(year, month - 1 + offset, 1);
+    props.setMonth(localDate(value).slice(0, 7));
+  };
+  return <section className="rail-panel calendar">
+    <div className="rail-heading"><h3>日期热力图</h3><span>访问次数</span></div>
+    <header><button onClick={() => moveMonth(-1)}><CaretLeft /></button><strong>{monthLabel(props.month)}</strong><button onClick={() => moveMonth(1)}><CaretRight /></button></header>
+    <div className="weekday">{["一", "二", "三", "四", "五", "六", "日"].map((day) => <span key={day}>{day}</span>)}</div>
+    <div className="calendar-days">{calendarCells(props.month).map((cell) => {
+      const count = counts.get(cell.date) || 0;
+      return <button key={cell.date} data-current={cell.current} data-selected={cell.date === props.selectedDate} style={{ "--density": count ? .12 + count / max * .7 : 0 } as React.CSSProperties} onClick={() => props.chooseDate(cell.date)} title={`${cell.date} · ${count} 次访问`}>{cell.day}</button>;
+    })}</div>
+    <footer><span>少</span>{[.12, .28, .44, .6, .82].map((value) => <i key={value} style={{ "--density": value } as React.CSSProperties} />)}<span>多</span></footer>
   </section>;
 }
 
-function SessionTimeline({ sessions, selected, expanded, setExpanded, onToggleVisit, onToggleSession, loading, searchMode }: {
-  sessions: VisitSession[]; selected: Set<string>; expanded: Set<string>; setExpanded: React.Dispatch<React.SetStateAction<Set<string>>>;
-  onToggleVisit: (id: string) => void; onToggleSession: (session: VisitSession) => void; loading: boolean; searchMode: boolean;
-}) {
-  if (loading) return <LoadingTimeline />;
-  if (!sessions.length) return <EmptyArchive searchMode={searchMode} />;
-  return <div className="session-timeline">
-    <div className="pane-heading"><div><h1>{searchMode ? "搜索结果" : "会话视图"}</h1><span>{sessions.length} 个会话 · 时间为访问跨度，不代表活跃时长</span></div>
-      <button><Funnel size={15} />筛选</button></div>
-    {sessions.slice(0, 120).map((session) => {
-      const isExpanded = expanded.has(session.id);
-      const everySelected = session.visits.every((visit) => selected.has(visit.id));
-      return <article className="session-block" key={session.id}>
-        <div className="session-time-rail"><strong>{formatTime(session.start)}</strong><i /><span /></div>
-        <div className="session-surface">
-          <header>
-            <button className="check-button" data-checked={everySelected} onClick={() => onToggleSession(session)}>{everySelected ? <Check size={12} weight="bold" /> : null}</button>
-            <div><strong>{session.title}</strong><span>{formatTime(session.start)}–{formatTime(session.end)} · 跨度 {formatSpan(session.span)}</span></div>
-            <small>{session.visits.length} 个页面</small>
-            <button className="collapse-button" onClick={() => setExpanded((current) => {
-              const next = new Set(current); if (next.has(session.id)) next.delete(session.id); else next.add(session.id); return next;
-            })}>{isExpanded ? <CaretUp size={15} /> : <CaretDown size={15} />}</button>
-          </header>
-          {isExpanded ? <div className="session-pages">{session.visits.slice().reverse().map((visit, index, array) =>
-            <VisitRow key={visit.id} visit={visit} selected={selected.has(visit.id)} onToggle={() => onToggleVisit(visit.id)}
-              nextTime={array[index + 1]?.visitTime} />)}</div> : null}
-          {!isExpanded ? <div className="domain-preview">{session.domains.slice(0, 5).map((domain) => <span key={domain}>{domain}</span>)}</div> : null}
-        </div>
-      </article>;
-    })}
+function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return <div className="day-metric"><span>{icon}{label}</span><strong>{value}</strong></div>;
+}
+
+function EvidenceTable({ visits, filter, clearFilter }: { visits: ArchivedVisit[]; filter: Filter; clearFilter: () => void }) {
+  return <section className="panel evidence">
+    <header><div><h2>近期访问记录</h2><p>图表结论对应的原始记录</p></div>{filter ? <button onClick={clearFilter}>清除筛选 · {filter.value}</button> : null}</header>
+    <div className="table-head"><span>访问时间</span><span>页面</span><span>域名</span><span>来源</span><span>操作</span></div>
+    {visits.length ? visits.map((visit) => <VisitRow key={visit.id} visit={visit} />) : <div className="empty-row">当前筛选没有记录</div>}
+  </section>;
+}
+
+function VisitRow({ visit }: { visit: ArchivedVisit }) {
+  return <div className="visit-table-row">
+    <time>{new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(visit.visitTime)}</time>
+    <span className="page-cell"><Favicon visit={visit} /><span><strong>{visit.title || visit.domain}</strong><small>{visit.url}</small></span></span>
+    <span>{visit.domain}</span><span><i className="source-dot" />{sourceGroup(visit.transition)}</span>
+    <a href={visit.url} target="_blank" rel="noreferrer" title="打开页面"><ArrowSquareOut /></a>
   </div>;
 }
 
-function VisitRow({ visit, selected, onToggle, nextTime }: { visit: ArchivedVisit; selected: boolean; onToggle: () => void; nextTime?: number }) {
-  const gap = nextTime ? Math.max(0, visit.visitTime - nextTime) : 0;
-  const favicon = faviconUrl(visit.url);
-  return <div className="visit-row" data-selected={selected}>
-    <button className="check-button" data-checked={selected} onClick={onToggle}>{selected ? <Check size={12} weight="bold" /> : null}</button>
-    <span className="visit-clock">{formatTime(visit.visitTime)}</span>
-    {favicon ? <img className="favicon" src={favicon} alt="" /> : <span className="favicon fallback">{visit.domain.charAt(0).toUpperCase()}</span>}
-    <a href={visit.url} target="_blank" rel="noreferrer"><strong>{visit.title}</strong><span>{visit.url.replace(/^https?:\/\//, "")}</span></a>
-    <span className="visit-type">{transitionText(visit.transition)}</span>
-    <span className="visit-gap">{gap ? `间隔 ${formatSpan(gap)}` : "会话末项"}</span>
-    <span className="archive-badge" data-native={visit.nativePresent}>{visit.nativePresent ? "Chrome + 归档" : "仅归档"}</span>
-  </div>;
+function Favicon({ visit }: { visit: ArchivedVisit }) {
+  const url = faviconUrl(visit.url);
+  return url ? <img src={url} alt="" /> : <i className="favicon-fallback">{visit.domain[0]?.toUpperCase()}</i>;
 }
 
-function PageList({ visits, selected, onToggle, loading }: { visits: ArchivedVisit[]; selected: Set<string>; onToggle: (id: string) => void; loading: boolean }) {
-  if (loading) return <LoadingTimeline />;
-  if (!visits.length) return <EmptyArchive searchMode />;
-  return <div className="flat-pages">
-    <div className="pane-heading"><div><h1>所有页面</h1><span>{visits.length.toLocaleString("zh-CN")} 条匹配记录</span></div></div>
-    {visits.slice(0, 5000).map((visit) => <VisitRow key={visit.id} visit={visit} selected={selected.has(visit.id)} onToggle={() => onToggle(visit.id)} />)}
+function RecordsView({ title, subtitle, visits, mode }: { title: string; subtitle: string; visits: ArchivedVisit[]; mode: "sessions" | "pages" }) {
+  const sessions = buildSessions(visits);
+  return <div className="simple-view"><header><h1>{title}</h1><p>{subtitle}</p></header>
+    {mode === "sessions" ? sessions.map((session) => <section className="session-card" key={session.id}><header><div><strong>{session.title}</strong><span>{formatTime(session.start)} · 观察跨度 {formatSpan(session.span)}</span></div><b>{session.visits.length} 次</b></header>{session.visits.slice().reverse().slice(0, 8).map((visit) => <VisitRow key={visit.id} visit={visit} />)}</section>)
+      : <section className="panel evidence">{visits.slice(0, 200).map((visit) => <VisitRow key={visit.id} visit={visit} />)}</section>}
   </div>;
 }
 
 function DomainView({ ranking, total, onDomain }: { ranking: Array<{ domain: string; count: number }>; total: number; onDomain: (domain: string) => void }) {
   const max = ranking[0]?.count || 1;
-  return <div className="domain-view">
-    <div className="pane-heading"><div><h1>域名视图</h1><span>{ranking.length} 个域名 · {total.toLocaleString("zh-CN")} 条归档</span></div></div>
-    <div className="domain-table">{ranking.slice(0, 200).map((item, index) => <button key={item.domain} onClick={() => onDomain(item.domain)}>
-      <span>{String(index + 1).padStart(2, "0")}</span><strong>{item.domain}</strong><i><b style={{ width: `${(item.count / max) * 100}%` }} /></i>
-      <em>{item.count.toLocaleString("zh-CN")} 次</em><CaretRight size={15} />
-    </button>)}</div>
+  return <div className="simple-view"><header><h1>域名排行</h1><p>当前时间范围内的访问分布</p></header><section className="domain-list">{ranking.map((item, index) => <button key={item.domain} onClick={() => onDomain(item.domain)}><b>{String(index + 1).padStart(2, "0")}</b><i>{item.domain[0]?.toUpperCase()}</i><strong>{item.domain}</strong><span><em style={{ width: `${item.count / max * 100}%` }} /></span><small>{item.count.toLocaleString("zh-CN")} · {(item.count / Math.max(total, 1) * 100).toFixed(1)}%</small></button>)}</section></div>;
+}
+
+function Settings(props: { stats: Stats; status: ArchiveStatus; theme: Theme; setTheme: (theme: Theme) => void; onSync: () => void; onImport: () => void; onExport: () => void }) {
+  return <div className="simple-view settings"><header><h1>设置</h1><p>归档、备份与显示偏好</p></header>
+    <section className="settings-card"><div><ShieldCheck /><span><strong>永久本地归档</strong><small>{props.stats.count.toLocaleString("zh-CN")} 条记录 · {formatBytes(props.stats.usage)}</small></span><b>{props.status.phase === "error" ? "异常" : "正常"}</b></div><div className="settings-actions"><button onClick={props.onSync}><ArrowClockwise />立即同步</button><button onClick={props.onImport}><UploadSimple />导入备份</button><button onClick={props.onExport}><Export />导出完整归档</button></div></section>
+    <section className="settings-card"><div><Sun /><span><strong>外观</strong><small>默认白色，同时完整适配深色环境</small></span><select value={props.theme} onChange={(event) => props.setTheme(event.target.value as Theme)}><option value="light">浅色</option><option value="dark">深色</option></select></div></section>
   </div>;
-}
-
-function SettingsPanel({ stats, status, onImport, onExport, onSync }: {
-  stats: { count: number; oldest: number | null; newest: number | null; usage: number; quota: number };
-  status: ArchiveStatus; onImport: () => void; onExport: () => void; onSync: () => void;
-}) {
-  return <div className="settings-view">
-    <div className="pane-heading"><div><h1>归档设置</h1><span>永久归档独立于 Chrome 原生历史</span></div></div>
-    <section><header><Database size={20} /><div><strong>本地 IndexedDB 归档</strong><span>扩展卸载前永久保留，不随 Chrome 清理历史而删除</span></div><b data-good>已启用</b></header>
-      <dl><div><dt>归档记录</dt><dd>{stats.count.toLocaleString("zh-CN")} 条</dd></div><div><dt>覆盖范围</dt><dd>{stats.oldest ? `${formatDate(stats.oldest)} — ${formatDate(stats.newest || Date.now())}` : "暂无"}</dd></div>
-        <div><dt>占用空间</dt><dd>{formatBytes(stats.usage)}</dd></div><div><dt>初次深度导入</dt><dd>{status.bootstrapComplete ? "已完成" : status.phase === "importing" ? "进行中" : "等待"}</dd></div></dl></section>
-    <section><header><HardDrives size={20} /><div><strong>迁移与备份</strong><span>导入旧 Webtrail JSON/CSV，或备份全部永久归档</span></div></header>
-      <div className="settings-actions"><button onClick={onImport}><UploadSimple size={17} />导入归档</button><button onClick={onExport}><DownloadSimple size={17} />备份全部</button>
-        <button onClick={onSync}><ArrowClockwise size={17} />同步最近历史</button></div></section>
-    <section><header><ShieldCheck size={20} /><div><strong>隐私边界</strong><span>不上传记录，不注入网页，不读取页面内容；仅使用 Chrome history 权限</span></div></header></section>
-  </div>;
-}
-
-function RightRail(props: {
-  selectedDate: string; month: string; setMonth: (month: string) => void; monthVisits: ArchivedVisit[];
-  chooseDate: (date: string) => void; stats: { count: number; oldest: number | null; usage: number };
-  status: ArchiveStatus; archiveProgress: number; visitCount: number; sessions: VisitSession[]; ranking: Array<{ domain: string; count: number }>;
-}) {
-  return <aside className="right-rail">
-    <div className="rail-title">时间洞察</div>
-    <CalendarPanel selectedDate={props.selectedDate} month={props.month} setMonth={props.setMonth} visits={props.monthVisits} chooseDate={props.chooseDate} />
-    <section className="rail-card archive-coverage">
-      <header><Archive size={17} /><strong>永久归档覆盖</strong></header>
-      <p>{props.stats.oldest ? `${formatDate(props.stats.oldest)} — 今天` : "正在导入 Chrome 历史"}</p>
-      <div className="coverage-track"><i style={{ width: `${props.archiveProgress}%` }} /></div>
-      <div><span>{props.status.bootstrapComplete ? "深度导入完成" : `深度导入 ${props.archiveProgress}%`}</span><b>{props.stats.count.toLocaleString("zh-CN")} 条</b></div>
-      <small><ShieldCheck size={13} weight="fill" />本地永久存储 · {formatBytes(props.stats.usage)}</small>
-    </section>
-    <section className="rail-card day-summary"><h2>{props.selectedDate.slice(5).replace("-", "月")}日概览</h2>
-      <dl><div><dt>访问量</dt><dd>{props.visitCount}</dd></div><div><dt>独立域名</dt><dd>{props.ranking.length}</dd></div><div><dt>会话</dt><dd>{props.sessions.length}</dd></div>
-        <div><dt>观察跨度</dt><dd>{formatSpan(props.sessions.reduce((sum, session) => sum + session.span, 0))}</dd></div></dl></section>
-    <section className="rail-card top-domains"><header><strong>热门域名</strong><span>Top 8</span></header>
-      {props.ranking.slice(0, 8).map((item, index) => <div key={item.domain}><span><i>{index + 1}</i>{item.domain}</span><b>{item.count}</b></div>)}
-    </section>
-  </aside>;
-}
-
-function CalendarPanel({ selectedDate, month, setMonth, visits, chooseDate }: {
-  selectedDate: string; month: string; setMonth: (month: string) => void; visits: ArchivedVisit[]; chooseDate: (date: string) => void;
-}) {
-  const [year, monthNumber] = month.split("-").map(Number);
-  const firstDay = new Date(year, monthNumber - 1, 1);
-  const daysInMonth = new Date(year, monthNumber, 0).getDate();
-  const startOffset = (firstDay.getDay() + 6) % 7;
-  const counts = new Map<string, number>();
-  visits.forEach((visit) => counts.set(localDate(visit.visitTime), (counts.get(localDate(visit.visitTime)) || 0) + 1));
-  const max = Math.max(1, ...counts.values());
-  function moveMonth(offset: number) {
-    const date = new Date(year, monthNumber - 1 + offset, 1);
-    setMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`);
-  }
-  return <section className="calendar-panel">
-    <header><button onClick={() => moveMonth(-1)}><CaretLeft size={15} /></button><strong>{year}年{monthNumber}月</strong><button onClick={() => moveMonth(1)}><CaretRight size={15} /></button></header>
-    <div className="weekday-row">{WEEKDAYS.map((day) => <span key={day}>{day}</span>)}</div>
-    <div className="calendar-grid">
-      {Array.from({ length: startOffset }, (_, index) => <i key={`blank-${index}`} />)}
-      {Array.from({ length: daysInMonth }, (_, index) => {
-        const day = index + 1;
-        const date = `${year}-${String(monthNumber).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-        const count = counts.get(date) || 0;
-        return <button key={date} data-active={date === selectedDate} data-today={date === TODAY} onClick={() => chooseDate(date)}
-          style={{ "--density": count ? 0.18 + (count / max) * 0.82 : 0 } as React.CSSProperties} title={`${date} · ${count} 次`}>
-          {day}
-        </button>;
-      })}
-    </div>
-    <footer><span>少</span>{[.15, .3, .5, .7, 1].map((value) => <i key={value} style={{ "--density": value } as React.CSSProperties} />)}<span>多</span></footer>
-  </section>;
-}
-
-function LoadingTimeline() {
-  return <div className="loading-timeline">{Array.from({ length: 4 }, (_, index) => <div key={index}><i /><span /></div>)}</div>;
-}
-
-function EmptyArchive({ searchMode }: { searchMode: boolean }) {
-  return <div className="empty-archive"><Archive size={36} /><h2>{searchMode ? "没有找到匹配记录" : "这一天还没有归档"}</h2>
-    <p>{searchMode ? "换个关键词，或导入更早的 Webtrail 归档。" : "首次导入会在后台继续运行，之后的新访问会自动永久保存。"}</p></div>;
 }
