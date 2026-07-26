@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Webtrail — 永久浏览轨迹",
+  "short_name": "Webtrail",
+  "version": "2.0.0",
+  "description": "替换 Chrome 历史页，在本地永久归档、搜索和重建浏览会话。",
+  "minimum_chrome_version": "109",
+  "permissions": [
+    "history",
+    "storage",
+    "unlimitedStorage",
+    "alarms",
+    "favicon"
+  ],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "action": {
+    "default_title": "打开 Webtrail"
+  },
+  "chrome_url_overrides": {
+    "history": "index.html"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "incognito": "not_allowed"
+}
