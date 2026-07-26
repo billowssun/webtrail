@@ -1,0 +1,65 @@
+name: Package Chrome extension release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: webtrail-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish extension
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate extension
+        run: npm run check
+
+      - name: Package extension
+        run: npm run pack:extension
+
+      - name: Create tag and GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          $baseTag = "v$version"
+          git fetch --tags --force
+          $existingBaseTag = git tag --list $baseTag
+
+          if ([string]::IsNullOrWhiteSpace(($existingBaseTag -join ""))) {
+            $tag = $baseTag
+          } else {
+            $tag = "$baseTag-build.$env:GITHUB_RUN_NUMBER.$env:GITHUB_RUN_ATTEMPT"
+          }
+
+          git tag $tag $env:GITHUB_SHA
+          git push origin $tag
+          gh release create $tag `
+            "dist/webtrail-extension.zip#Webtrail Chrome Extension" `
+            --verify-tag `
+            --generate-notes `
+            --title "Webtrail $tag"

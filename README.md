@@ -34,6 +34,19 @@ npm run pack:extension
 
 产物为 `dist/webtrail-extension.zip`。
 
+## 自动发布
+
+每次提交到 `main` 后，GitHub Actions 会自动：
+
+1. 执行类型检查、自动化测试和生产构建。
+2. 生成 `webtrail-extension.zip`。
+3. 创建对应 Git Tag。
+4. 创建 GitHub Release 并上传插件压缩包。
+
+当前 `package.json` 版本首次发布使用 `v2.0.0`；同一版本的后续提交使用
+`v2.0.0-build.<运行号>.<尝试号>`。准备正式升级时，同时修改
+`package.json` 和 `src/renderer/public/manifest.json` 的版本号。
+
 ## 开发预览
 
 ```powershell

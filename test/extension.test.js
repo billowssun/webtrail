@@ -6,6 +6,7 @@ const path = require("node:path");
 const root = path.join(__dirname, "..");
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "src", "renderer", "public", "manifest.json"), "utf8"));
 const worker = fs.readFileSync(path.join(root, "src", "renderer", "public", "service-worker.js"), "utf8");
+const releaseWorkflow = fs.readFileSync(path.join(root, ".github", "workflows", "release.yml"), "utf8");
 
 test("builds a Manifest V3 Chrome history override", () => {
   assert.equal(manifest.manifest_version, 3);
@@ -38,4 +39,12 @@ test("extension declares all icon assets", () => {
     assert.ok(fs.existsSync(file), `missing ${file}`);
     assert.ok(fs.statSync(file).size > 100);
   }
+});
+
+test("main branch commits are packaged into GitHub Releases", () => {
+  assert.match(releaseWorkflow, /branches:\s*\n\s+- main/);
+  assert.match(releaseWorkflow, /npm run check/);
+  assert.match(releaseWorkflow, /npm run pack:extension/);
+  assert.match(releaseWorkflow, /gh release create/);
+  assert.match(releaseWorkflow, /webtrail-extension\.zip/);
 });
