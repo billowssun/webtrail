@@ -61,6 +61,11 @@ test("the product exposes only analysis and history as core views", () => {
 
 test("analysis supports linked day week month visualizations", () => {
   assert.match(app, /type PeriodMode = "day" \| "week" \| "month"/);
+  assert.match(app, /Array\.from\(\{ length: 24 \}/);
+  assert.match(app, /index \* 60 \* 60 \* 1000/);
+  assert.match(app, /start \+ 60 \* 60 \* 1000/);
+  assert.match(app, /当天访问趋势/);
+  assert.match(app, /按小时/);
   assert.match(app, /type: "bar"/);
   assert.match(app, /type: "heatmap"/);
   assert.match(app, /热门域名 TOP 5/);

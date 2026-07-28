@@ -84,6 +84,13 @@ function periodLabel(mode: PeriodMode, selectedDate: string) {
   return monthLabel(selectedDate.slice(0, 7));
 }
 
+function trendPeriodLabel(mode: PeriodMode, selectedDate: string) {
+  const label = periodLabel(mode, selectedDate);
+  if (mode === "day") return `${label} · 按小时`;
+  if (mode === "week") return `${label} · 按天`;
+  return `${label} · 按日`;
+}
+
 function periodBuckets(mode: PeriodMode, selectedDate: string, visits: ArchivedVisit[]) {
   const bounds = periodBounds(mode, selectedDate);
   const makeBucket = (key: string, label: string, start: number, end: number): Bucket => ({
@@ -91,9 +98,9 @@ function periodBuckets(mode: PeriodMode, selectedDate: string, visits: ArchivedV
     count: visits.filter((visit) => visit.visitTime >= start && visit.visitTime < end).length
   });
   if (mode === "day") {
-    return Array.from({ length: 12 }, (_, index) => {
-      const start = bounds.start + index * 2 * 60 * 60 * 1000;
-      return makeBucket(String(index), `${String(index * 2).padStart(2, "0")}:00`, start, start + 2 * 60 * 60 * 1000);
+    return Array.from({ length: 24 }, (_, index) => {
+      const start = bounds.start + index * 60 * 60 * 1000;
+      return makeBucket(String(index), `${String(index).padStart(2, "0")}:00`, start, start + 60 * 60 * 1000);
     });
   }
   if (mode === "week") {
@@ -321,6 +328,9 @@ function AnalysisPage(props: {
     contributionModel(props.visits, props.selectedDate, props.mode),
   [props.mode, props.selectedDate, props.visits]);
   const change = percentChange(periodVisits.length, previousVisits.length);
+  const focusedTime = props.mode === "day"
+    ? props.selectedDate === TODAY ? Date.now() : null
+    : dayStart(props.selectedDate);
   const dark = props.theme === "dark";
   const ink = dark ? "#edf3fc" : "#172033";
   const muted = dark ? "#99a8bd" : "#69758a";
@@ -344,17 +354,17 @@ function AnalysisPage(props: {
     xAxis: {
       type: "category", data: buckets.map((bucket) => bucket.label),
       axisLine: { lineStyle: { color: grid } }, axisTick: { show: false },
-      axisLabel: { color: muted, interval: props.mode === "month" ? 2 : 0, fontSize: 10 }
+      axisLabel: { color: muted, interval: props.mode === "day" ? 1 : props.mode === "month" ? 2 : 0, fontSize: 10 }
     },
     yAxis: {
       type: "value", splitNumber: 4, axisLine: { show: false }, axisTick: { show: false },
       axisLabel: { color: muted, fontSize: 10 }, splitLine: { lineStyle: { color: grid } }
     },
     series: [{
-      type: "bar", barMaxWidth: props.mode === "day" ? 34 : props.mode === "week" ? 50 : 18,
+      type: "bar", barMaxWidth: props.mode === "day" ? 22 : props.mode === "week" ? 50 : 18,
       data: buckets.map((bucket) => ({
         value: bucket.count, label: bucket.label, start: bucket.start,
-        itemStyle: { color: bucket.start <= dayStart(props.selectedDate) && bucket.end > dayStart(props.selectedDate) ? "#0f5fd7" : ACCENT }
+        itemStyle: { color: focusedTime !== null && bucket.start <= focusedTime && bucket.end > focusedTime ? "#0f5fd7" : ACCENT }
       })),
       itemStyle: { borderRadius: [3, 3, 0, 0], opacity: .88 },
       emphasis: { itemStyle: { opacity: 1 } }
@@ -436,7 +446,7 @@ function AnalysisPage(props: {
       </header>
       <section className="data-panel trend-card">
         <header className="data-heading">
-          <div><h2>访问趋势</h2><span>{periodLabel(props.mode, props.selectedDate)}</span></div>
+          <div><h2>{props.mode === "day" ? "当天访问趋势" : "访问趋势"}</h2><span>{trendPeriodLabel(props.mode, props.selectedDate)}</span></div>
           <div className="headline-metrics">
             <span>总访问次数 <b>{compact(periodVisits.length)}</b></span>
             <span className={change >= 0 ? "positive" : "negative"}>较上期 <b>{change >= 0 ? "↑" : "↓"} {Math.abs(change).toFixed(1)}%</b></span>
