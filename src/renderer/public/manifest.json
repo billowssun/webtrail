@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Webtrail — 永久浏览轨迹",
   "short_name": "Webtrail",
-  "version": "2.1.0",
-  "description": "替换 Chrome 历史页，用趋势、热力图和域名分析可视化永久浏览记录。",
+  "version": "2.2.0",
+  "description": "用天周月趋势、GitHub 式热力图和精确分类查看永久浏览记录。",
   "minimum_chrome_version": "109",
   "permissions": [
     "history",

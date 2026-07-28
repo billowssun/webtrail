@@ -7,6 +7,7 @@ const root = path.join(__dirname, "..");
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "src", "renderer", "public", "manifest.json"), "utf8"));
 const worker = fs.readFileSync(path.join(root, "src", "renderer", "public", "service-worker.js"), "utf8");
 const releaseWorkflow = fs.readFileSync(path.join(root, ".github", "workflows", "release.yml"), "utf8");
+const app = fs.readFileSync(path.join(root, "src", "renderer", "App.tsx"), "utf8");
 
 test("builds a Manifest V3 Chrome history override", () => {
   assert.equal(manifest.manifest_version, 3);
@@ -49,4 +50,27 @@ test("main branch commits are packaged into GitHub Releases", () => {
   assert.match(releaseWorkflow, /npm run pack:extension/);
   assert.match(releaseWorkflow, /gh release create/);
   assert.match(releaseWorkflow, /webtrail-extension\.zip/);
+});
+
+test("the product exposes only analysis and history as core views", () => {
+  assert.match(app, /type ViewKey = "analysis" \| "history"/);
+  assert.match(app, />可视化分析</);
+  assert.match(app, />历史记录</);
+  assert.doesNotMatch(app, /ViewKey.*settings/);
+});
+
+test("analysis supports linked day week month visualizations", () => {
+  assert.match(app, /type PeriodMode = "day" \| "week" \| "month"/);
+  assert.match(app, /type: "bar"/);
+  assert.match(app, /type: "heatmap"/);
+  assert.match(app, /热门域名 TOP 5/);
+  assert.doesNotMatch(app, /type: "pie"/);
+});
+
+test("history provides precise BetterHistory-style filters", () => {
+  assert.match(app, /最近 7 天/);
+  assert.match(app, /按域名/);
+  assert.match(app, /访问类型/);
+  assert.match(app, /buildSessions\(dayVisits\)/);
+  assert.match(app, /从 Chrome 历史删除/);
 });
