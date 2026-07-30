@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Webtrail Promo V2</title>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <style>
+    @font-face{font-family:"Microsoft YaHei";src:local("Microsoft YaHei");font-display:block}
+    @font-face{font-family:"Consolas";src:local("Consolas");font-display:block}
+    *{box-sizing:border-box}
+    html,body{margin:0;width:1080px;height:1440px;overflow:hidden;background:#f6f8fb;color:#172033;font-family:"Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision;font-synthesis:none}
+    #root{position:relative;width:1080px;height:1440px;overflow:hidden}
+    .scene{position:absolute;inset:0;width:1080px;height:1440px;overflow:hidden;background:#f6f8fb}
+    #s1{z-index:1}#s2{z-index:2}#s3{z-index:3}#s4{z-index:4}#s5{z-index:5}#s6{z-index:6}#s7{z-index:7}#s8{z-index:8}
+    #s2,#s3,#s4,#s5,#s6,#s7,#s8{opacity:0}
+    .fill{position:absolute;inset:0;background:#f6f8fb}
+    .content{position:relative;width:100%;height:100%;display:flex;flex-direction:column;padding:66px 58px 58px}
+    .wash{position:absolute;width:760px;height:760px;border-radius:50%;background:radial-gradient(circle,rgba(23,105,232,.17),rgba(23,105,232,0) 70%)}
+    .wash.tr{right:-330px;top:-330px}.wash.bl{left:-360px;bottom:-370px}
+    .grid-bg{position:absolute;inset:0;background-image:linear-gradient(#e3e8ef 2px,rgba(227,232,239,0) 2px),linear-gradient(90deg,#e3e8ef 2px,rgba(227,232,239,0) 2px);background-size:96px 96px;opacity:.34}
+    h1,h2,p{margin:0}.block{display:block}
+    .eyebrow{display:flex;align-items:center;gap:12px;color:#1769e8;font-family:"Consolas",monospace;font-size:21px;font-weight:700;letter-spacing:.09em;text-transform:uppercase}
+    .dot{width:11px;height:11px;border-radius:50%;background:#1769e8}
+    .hero{font-size:104px;line-height:1.03;letter-spacing:-.055em;font-weight:900}
+    .title{font-size:76px;line-height:1.08;letter-spacing:-.045em;font-weight:900}
+    .blue{color:#1769e8}.muted{color:#5f687a}.mono{font-family:"Consolas",monospace;font-variant-numeric:tabular-nums}
+    .panel{background:#fff;border:2px solid #e3e8ef;border-radius:24px;box-shadow:0 30px 72px rgba(42,61,90,.13)}
+    .pill{display:inline-flex;align-items:center;justify-content:center;padding:12px 21px;border:2px solid rgba(23,105,232,.14);border-radius:999px;background:#edf4ff;color:#1769e8;font-size:22px;font-weight:800}
+    .browser{position:relative;overflow:hidden;border-radius:26px;border:2px solid #e3e8ef;background:#fff;box-shadow:0 34px 82px rgba(42,61,90,.17)}
+    .browser::before{content:"";display:block;height:40px;border-bottom:2px solid #e3e8ef;background:#fff}
+    .dots{position:absolute;z-index:3;top:14px;left:20px;display:flex;gap:7px}.dots i{width:10px;height:10px;border-radius:50%;background:#dce3ea}
+    .browser img{display:block;width:100%}
+
+    /* 1 */
+    .brand{display:flex;align-items:center;gap:18px}.brand img{width:70px;height:70px;border-radius:18px;box-shadow:0 15px 34px rgba(23,105,232,.18)}.brand b{font-size:36px}
+    .s1-head{margin-top:90px;display:flex;flex-direction:column;gap:30px}
+    .trail-stage{position:relative;margin-top:80px;height:570px}
+    .trail-svg{position:absolute;inset:0;width:100%;height:100%}.trail-path{fill:none;stroke:#1769e8;stroke-width:5;stroke-linecap:round;stroke-dasharray:1500;stroke-dashoffset:1500}
+    .trail-node{position:absolute;width:28px;height:28px;border:7px solid #fff;border-radius:50%;background:#1769e8;box-shadow:0 0 0 5px rgba(23,105,232,.16)}
+    .visit-card{position:absolute;width:390px;min-height:100px;padding:18px 20px;display:grid;grid-template-columns:58px 1fr;gap:14px;align-items:center}
+    .visit-card .icon{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;background:#edf4ff;color:#1769e8;font-size:22px;font-weight:900}
+    .visit-card b{display:block;font-size:20px}.visit-card span{display:block;margin-top:6px;color:#5f687a;font-size:17px}
+    .v1{left:0;top:20px}.v2{right:0;top:125px}.v3{left:50px;top:260px}.v4{right:10px;top:380px}
+    .s1-meta{margin-top:auto;display:flex;justify-content:space-between;align-items:flex-end}.s1-meta strong{font-size:62px;color:#1769e8}.s1-meta span{font-size:22px;color:#5f687a}
+
+    /* 2 */
+    .split-head{display:flex;justify-content:space-between;align-items:flex-start;gap:32px}
+    .big-number{font-size:184px;line-height:.9;font-weight:900;color:#1769e8;letter-spacing:-.08em}
+    .one-card{margin-top:80px;padding:46px;display:flex;flex-direction:column;gap:34px}
+    .one-value{display:flex;justify-content:space-between;align-items:flex-end}.one-value b{font-size:104px;line-height:1;color:#172033}.one-value span{font-size:25px;color:#5f687a}
+    .flat-line{position:relative;height:190px;border-bottom:3px solid #e3e8ef}
+    .flat-line::before{content:"";position:absolute;left:0;right:0;top:95px;height:5px;border-radius:5px;background:#1769e8}
+    .flat-line .single{position:absolute;right:100px;top:48px;width:18px;height:95px;border-radius:9px;background:#0f5fd7}
+    .question{margin-top:52px;max-width:900px;font-size:43px;line-height:1.32;font-weight:700}
+    .question em{font-style:normal;color:#1769e8}
+
+    /* 3 */
+    .hour-meta{margin-top:34px;display:flex;justify-content:space-between;align-items:center}
+    .hour-chart{margin-top:54px;height:680px;padding:40px 32px 34px;display:flex;flex-direction:column}
+    .hour-bars{height:500px;display:flex;align-items:flex-end;gap:9px;border-bottom:3px solid #e3e8ef}
+    .hour-bar{flex:1;min-width:0;border-radius:8px 8px 2px 2px;background:#1769e8;transform-origin:center bottom;position:relative}
+    .hour-bar.active{background:#0f5fd7;box-shadow:0 0 0 7px rgba(23,105,232,.12)}
+    .hour-axis{display:flex;justify-content:space-between;margin-top:18px;color:#5f687a;font-size:20px}
+    .hour-tooltip{position:absolute;width:220px;padding:18px 20px;border-radius:17px;background:#172033;color:#fff;box-shadow:0 20px 44px rgba(23,32,51,.26)}
+    .hour-tooltip b{display:block;font-size:26px}.hour-tooltip span{display:block;margin-top:7px;font-size:19px;color:#dce3ea}
+    .scan-line{position:absolute;width:3px;height:500px;background:#1769e8;opacity:.55}
+
+    /* 4 */
+    .dash-wrap{position:relative;margin-top:45px;height:1030px}
+    .dash-browser{position:absolute;left:0;top:90px;width:970px;height:790px}
+    .dash-browser img{width:136%;margin-left:-18%}
+    .segment{position:absolute;z-index:7;top:0;right:8px;display:grid;grid-template-columns:repeat(3,92px);padding:7px;border-radius:18px;background:#fff;border:2px solid #e3e8ef;box-shadow:0 18px 42px rgba(42,61,90,.16);overflow:hidden}
+    .segment-glider{position:absolute;z-index:0;left:7px;top:7px;width:92px;height:54px;border-radius:12px;background:#1769e8;box-shadow:0 8px 20px rgba(23,105,232,.24)}
+    .segment span{position:relative;z-index:1;padding:13px 0;text-align:center;border-radius:12px;color:#5f687a;font-size:24px;font-weight:800}.segment .day-label{color:#fff}
+    .morph-card{position:absolute;z-index:5;left:46px;right:46px;bottom:0;height:350px;padding:28px 30px}
+    .morph-head{display:flex;justify-content:space-between;align-items:center}.morph-head b{font-size:25px}.morph-head span{font-size:20px;color:#5f687a}
+    .mode-stage{position:relative;height:250px;margin-top:10px;overflow:hidden}
+    .mode-layer{position:absolute;inset:0;transform-origin:center center}
+    .mode-layer.mode-week,.mode-layer.mode-month{opacity:0;visibility:hidden}
+    .mode-bars{height:190px;display:flex;align-items:flex-end;border-bottom:2px solid #e3e8ef}.mode-bars i{flex:1;min-width:0;border-radius:6px 6px 1px 1px;background:#1769e8;transform-origin:center bottom}
+    .mode-bars.day{gap:5px}.mode-bars.week{gap:18px}.mode-bars.month{gap:4px}.mode-bars.week i{border-radius:10px 10px 2px 2px}.mode-bars.month i{border-radius:4px 4px 1px 1px}
+    .mode-bars i.active{background:#0f5fd7;box-shadow:0 0 0 5px rgba(23,105,232,.11)}
+    .mode-axis{display:grid;margin-top:13px;color:#687386;font-size:17px}.mode-axis span{text-align:center;white-space:nowrap}.axis-day{grid-template-columns:repeat(5,1fr)}.axis-week{grid-template-columns:repeat(7,1fr)}.axis-month{grid-template-columns:repeat(7,1fr)}
+    .sync-chips{position:absolute;z-index:6;right:28px;top:660px;display:flex;gap:10px}.sync-chips span{padding:11px 16px;border-radius:13px;background:#fff;border:2px solid #e3e8ef;color:#1769e8;font-size:19px;font-weight:800;box-shadow:0 12px 28px rgba(42,61,90,.1)}
+
+    /* 5 */
+    .calendar-world{margin-top:50px;display:grid;grid-template-columns:450px 1fr;gap:28px;height:1000px}
+    .cal{padding:30px;align-self:start}.cal-head{display:flex;justify-content:space-between;align-items:center;font-size:27px;font-weight:900}.cal-week,.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:9px}.cal-week{margin-top:28px;color:#5f687a;font-size:18px;text-align:center}.cal-grid{margin-top:14px}.cal-day{height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:19px}.cal-day.sel{background:#1769e8;color:#fff;font-weight:900;box-shadow:0 0 0 8px rgba(23,105,232,.12)}
+    .downstream{display:flex;flex-direction:column;gap:22px}.down-card{height:190px;padding:24px 25px;position:relative;overflow:hidden}.down-card h3{margin:0;font-size:24px}
+    .mini-trend{margin-top:22px;height:84px;display:flex;align-items:flex-end;gap:4px;border-bottom:2px solid #e3e8ef}.mini-trend i{flex:1;min-width:0;border-radius:4px 4px 1px 1px;background:#1769e8;transform-origin:center bottom}.mini-trend i.lunch{background:#9bbce8}.mini-trend i.peak{background:#0f5fd7}
+    .mini-heat{margin-top:18px;height:92px;display:grid;grid-template-columns:repeat(7,1fr);grid-template-rows:repeat(5,1fr);grid-auto-flow:column;gap:6px}.mini-heat i{border-radius:4px;border:1px solid rgba(23,105,232,.07)}
+    .mini-ranks{margin-top:17px;display:flex;flex-direction:column;gap:8px}.mini-rank-row{display:grid;grid-template-columns:78px 1fr 35px;gap:9px;align-items:center;font-size:13px;color:#5f687a}.mini-rank-track{height:9px;border-radius:9px;background:#edf4ff;overflow:hidden}.mini-rank-fill{height:100%;border-radius:9px;background:#1769e8;transform-origin:left center}.mini-rank-row b{text-align:right;color:#172033}
+    .pulse-ring{position:absolute;width:76px;height:76px;border:5px solid #1769e8;border-radius:50%;opacity:0}
+    .connector{position:absolute;height:4px;background:#1769e8;transform-origin:left center}
+
+    /* 6 */
+    .insight-grid{margin-top:44px;display:grid;grid-template-rows:500px 1fr;gap:24px}
+    .heat-panel,.rank-panel{padding:28px 30px}
+    .card-head{display:flex;justify-content:space-between;align-items:center}.card-head b{font-size:26px}.card-head span{font-size:19px;color:#5f687a}
+    .heat-months{margin:20px 0 0 42px;display:flex;justify-content:space-between;color:#5f687a;font-size:18px}
+    .heat-body{margin-top:14px;display:grid;grid-template-columns:30px 1fr;gap:12px;height:304px}.heat-days{display:grid;grid-template-rows:repeat(7,1fr);gap:7px;color:#5f687a;font-size:15px;align-items:center}.heat-days span{text-align:center}
+    .heat-grid{display:grid;grid-template-rows:repeat(7,1fr);grid-auto-flow:column;grid-auto-columns:1fr;gap:7px}.heat-cell{min-width:0;min-height:0;border-radius:7px;border:1px solid rgba(23,105,232,.06);box-shadow:inset 0 1px 0 rgba(255,255,255,.45)}
+    .l0{background:#f1f5fa}.l1{background:#dbe8f7}.l2{background:#b6cfed}.l3{background:#77a5dd}.l4{background:#2f73c7}.heat-cell.highlight{outline:4px solid #172033;outline-offset:2px;position:relative;z-index:2}
+    .rank-list{margin-top:18px;display:flex;flex-direction:column;gap:15px}.rank-row{display:grid;grid-template-columns:48px 175px 1fr 65px;gap:14px;align-items:center;font-size:20px}.rank-no{font-size:25px;color:#1769e8;font-weight:900}.rank-track{height:14px;border-radius:9px;background:#edf4ff;overflow:hidden}.rank-fill{height:100%;border-radius:9px;background:#1769e8;transform-origin:left center}.rank-count{text-align:right;color:#5f687a}
+    .heat-detail{position:absolute;z-index:3;width:240px;padding:19px;border-radius:17px;background:#172033;color:#fff;box-shadow:0 18px 40px rgba(23,32,51,.25)}.heat-detail b{font-size:24px}.heat-detail span{display:block;margin-top:6px;color:#dce3ea;font-size:18px}
+
+    /* 7 */
+    .history-wrap{position:relative;margin-top:38px;height:1030px}
+    .history-browser{position:absolute;inset:0;height:990px}.history-browser img{width:143%;margin-left:-24%;opacity:.16}
+    .search-box{position:absolute;z-index:7;top:70px;left:44px;right:44px;height:78px;display:flex;align-items:center;padding:0 11px 0 23px;border:3px solid #1769e8;border-radius:18px;background:#fff;box-shadow:0 18px 46px rgba(23,105,232,.2);font-size:27px}
+    .search-input{min-width:0;flex:1;display:flex;align-items:center;height:100%;overflow:hidden}.search-placeholder{position:absolute;color:#9aa4b2}.query-char{display:inline-block;width:0;overflow:hidden;white-space:nowrap;opacity:0;color:#172033;font-weight:800}.cursor{margin-left:4px;color:#1769e8;font-weight:800}
+    .search-submit{width:120px;height:56px;border:0;border-radius:13px;background:#1769e8;color:#fff;font-family:"Microsoft YaHei",sans-serif;font-size:21px;font-weight:900;box-shadow:0 10px 22px rgba(23,105,232,.25)}
+    .history-results{position:absolute;z-index:5;left:44px;right:44px;top:174px;height:670px;padding:21px 24px;border-radius:22px;background:rgba(255,255,255,.97);border:2px solid #e3e8ef;box-shadow:0 24px 54px rgba(42,61,90,.12);overflow:hidden}
+    .result-state{position:absolute;inset:21px 24px}.result-state.filtered-state{opacity:0;visibility:hidden}
+    .results-head{display:flex;justify-content:space-between;align-items:center;padding:0 4px 15px;border-bottom:2px solid #edf0f4}.results-head b{font-size:21px}.results-head span{font-size:16px;color:#7a8494}
+    .history-row{height:86px;display:grid;grid-template-columns:48px 1fr 74px;gap:14px;align-items:center;border-bottom:1px solid #edf0f4}.history-row:last-child{border-bottom:0}.row-icon{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:#edf4ff;color:#1769e8;font-weight:900}.row-copy{min-width:0}.row-copy b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:19px}.row-copy span{display:block;margin-top:5px;color:#7a8494;font-size:15px}.row-time{text-align:right;color:#687386;font-size:14px}
+    .filtered-state .history-row{height:154px}.filtered-state .row-copy b{font-size:22px}.filtered-state .row-copy span{font-size:17px;line-height:1.45}
+    .filters{position:absolute;z-index:7;left:44px;bottom:38px;display:flex;gap:10px}.filters .pill{padding:10px 17px;font-size:19px}.result-badge{position:absolute;z-index:7;right:44px;bottom:38px;padding:13px 18px;border-radius:15px;background:#172033;color:#fff;font-size:19px}.filtered-badge{opacity:0;visibility:hidden}
+
+    /* 8 */
+    .final{align-items:center;text-align:center}.final-brand{margin-top:18px;display:flex;align-items:center;gap:18px}.final-brand img{width:88px;height:88px;border-radius:22px}.final-brand b{font-size:48px}
+    .vault-stage{position:relative;margin-top:45px;width:100%;height:480px}.vault{position:absolute;left:350px;top:160px;width:280px;height:220px;border:5px solid #1769e8;border-radius:34px;background:#fff;box-shadow:0 28px 72px rgba(23,105,232,.18)}.vault-door{position:absolute;inset:26px;border:4px solid #e3e8ef;border-radius:22px;display:flex;align-items:center;justify-content:center}.vault-lock{width:72px;height:72px;border-radius:50%;background:#1769e8;box-shadow:0 0 0 12px #edf4ff}.archive-node{position:absolute;width:18px;height:18px;border-radius:50%;background:#1769e8;box-shadow:0 0 0 5px rgba(23,105,232,.12)}
+    .shield{position:absolute;right:160px;top:40px;width:120px;height:140px;border:5px solid #169b68;border-radius:58px 58px 70px 70px;background:#fff;display:flex;align-items:center;justify-content:center;color:#169b68;font-size:52px;font-weight:900}
+    .final h2{margin-top:12px;font-size:82px}.privacy{margin-top:26px;color:#169b68;border-color:rgba(22,155,104,.2);background:#edf9f4}.final-copy{margin-top:22px;font-size:28px;color:#5f687a}
+    .final-products{position:absolute;left:0;right:0;bottom:-120px;height:320px}.final-card{position:absolute;width:560px;border-radius:22px;overflow:hidden;border:2px solid #e3e8ef;background:#fff;box-shadow:0 28px 68px rgba(42,61,90,.15)}.final-card img{display:block;width:100%}.fc1{left:-100px;top:45px}.fc2{right:-100px;top:0}
+  </style>
+</head>
+<body>
+<div data-hf-id="hf-n0jh" id="root" class="clip" data-composition-id="webtrail-promo-v2" data-width="1080" data-height="1440" data-start="0" data-duration="39.936" data-track-index="0" data-layout-allow-overflow="" data-layout-allow-overlap="" data-layout-allow-occlusion="">
+  <audio data-hf-id="hf-z8rg" class="clip" id="narration" src="narration.wav" data-start="0" data-duration="39.936" data-track-index="1" data-volume="1"></audio>
+
+  <section data-hf-id="hf-mcnq" id="s1" class="scene"><div data-hf-id="hf-4qej" class="fill"></div><div data-hf-id="hf-q4u8" class="grid-bg"></div><div data-hf-id="hf-zmtl" class="wash tr"></div><div data-hf-id="hf-mcm7" class="content">
+    <div data-hf-id="hf-oojr" class="brand"><img data-hf-id="hf-7rkb" src="assets/webtrail-icon.png" alt=""><b data-hf-id="hf-mzpj">Webtrail</b></div>
+    <div data-hf-id="hf-sg2v" class="s1-head"><div data-hf-id="hf-3lw5" class="eyebrow"><i data-hf-id="hf-6bgx" class="dot"></i>Every click becomes a trail</div><h1 data-hf-id="hf-4rwm" class="hero"><span data-hf-id="hf-ryam" class="block">每一次点击，</span><span data-hf-id="hf-9364" class="block blue">都留下轨迹</span></h1></div>
+    <div data-hf-id="hf-l2st" class="trail-stage">
+      <svg data-hf-id="hf-aqts" class="trail-svg" viewBox="0 0 960 570"><path data-hf-id="hf-ivut" class="trail-path" d="M70 75 C260 35 300 210 495 170 S690 290 875 230 S720 500 520 430 S250 520 95 410" /></svg>
+      <div data-hf-id="hf-wwm9" class="trail-node"></div>
+      <div data-hf-id="hf-tvud" class="visit-card panel v1"><div data-hf-id="hf-zti4" class="icon">G</div><div data-hf-id="hf-yeow"><b data-hf-id="hf-7ds9">Webtrail · GitHub</b><span data-hf-id="hf-0tur" class="mono">09:12 · github.com</span></div></div>
+      <div data-hf-id="hf-xtye" class="visit-card panel v2"><div data-hf-id="hf-trvm" class="icon">知</div><div data-hf-id="hf-y7yw"><b data-hf-id="hf-63cf">机器学习路线</b><span data-hf-id="hf-vofx" class="mono">10:35 · zhihu.com</span></div></div>
+      <div data-hf-id="hf-1s2f" class="visit-card panel v3"><div data-hf-id="hf-a8do" class="icon">W</div><div data-hf-id="hf-x11t"><b data-hf-id="hf-jza9">Chrome 扩展文档</b><span data-hf-id="hf-scc9" class="mono">14:26 · developer.chrome.com</span></div></div>
+      <div data-hf-id="hf-5q6g" class="visit-card panel v4"><div data-hf-id="hf-10f7" class="icon">B</div><div data-hf-id="hf-xfcu"><b data-hf-id="hf-ydt8">历史记录设计参考</b><span data-hf-id="hf-74q0" class="mono">21:08 · betterhistory.io</span></div></div>
+    </div>
+    <div data-hf-id="hf-65ny" class="s1-meta"><div data-hf-id="hf-w8fr"><strong data-hf-id="hf-33bf" class="mono">1,762</strong><span data-hf-id="hf-hmmr" class="block">条本地归档记录</span></div><span data-hf-id="hf-4ejl" class="mono">2025.05.16</span></div>
+  </div></section>
+
+  <section data-hf-id="hf-iejp" id="s2" class="scene"><div data-hf-id="hf-lwnf" class="fill"></div><div data-hf-id="hf-fvz5" class="wash bl"></div><div data-hf-id="hf-i7rz" class="content">
+    <div data-hf-id="hf-wtyf" class="split-head"><div data-hf-id="hf-wmqs"><div data-hf-id="hf-iura" class="eyebrow"><i data-hf-id="hf-0j5x" class="dot"></i>Day view</div><h2 data-hf-id="hf-t276" class="title" style="margin-top:18px"><span data-hf-id="hf-nmvx" class="block">一天，</span><span data-hf-id="hf-15cb" class="block blue">不是一个数字</span></h2></div><div data-hf-id="hf-p7c0" class="big-number mono">1</div></div>
+    <div data-hf-id="hf-sp7p" class="one-card panel"><div data-hf-id="hf-1qw0" class="one-value"><div data-hf-id="hf-vftp"><span data-hf-id="hf-galf">2025年5月16日</span><b data-hf-id="hf-8k7b" class="block mono">286</b></div><span data-hf-id="hf-t8c9">次访问</span></div><div data-hf-id="hf-824s" class="flat-line"><i data-hf-id="hf-zymo" class="single"></i></div></div>
+    <p data-hf-id="hf-11h1" class="question">一个总数，看不见你在<em data-hf-id="hf-7c39">什么时间</em>真正活跃。</p>
+  </div></section>
+
+  <section data-hf-id="hf-hmvw" id="s3" class="scene"><div data-hf-id="hf-lice" class="fill"></div><div data-hf-id="hf-wbnc" class="grid-bg"></div><div data-hf-id="hf-htgy" class="content">
+    <div data-hf-id="hf-tiyv" class="split-head"><div data-hf-id="hf-vu4q"><div data-hf-id="hf-n5v0" class="eyebrow"><i data-hf-id="hf-1q30" class="dot"></i>Selected day · hourly</div><h2 data-hf-id="hf-dtfq" class="title" style="margin-top:18px"><span data-hf-id="hf-0pks" class="block">当天，</span><span data-hf-id="hf-7kk2" class="block blue">24 小时展开</span></h2></div><span data-hf-id="hf-gyya" class="pill mono">5月16日</span></div>
+    <div data-hf-id="hf-o7o4" class="hour-meta"><span data-hf-id="hf-k6te" class="muted">每根柱代表 1 小时</span><b data-hf-id="hf-3nvu" class="mono" style="font-size:36px">286 次访问</b></div>
+    <div data-hf-id="hf-5xwy" class="hour-chart panel" style="position:relative"><div data-hf-id="hf-d92c" class="hour-bars" id="hour-bars"></div><div data-hf-id="hf-4v91" class="hour-axis mono"><span data-hf-id="hf-2nbl">00:00</span><span data-hf-id="hf-m5gn">06:00</span><span data-hf-id="hf-pllg">12:00</span><span data-hf-id="hf-0tdi">18:00</span><span data-hf-id="hf-7pq4">23:00</span></div><div data-hf-id="hf-d3te" class="scan-line"></div><div data-hf-id="hf-ld1o" class="hour-tooltip"><b data-hf-id="hf-4amx" class="mono">16:00–16:59</b><span data-hf-id="hf-f575">33 次访问 · 当天峰值</span></div></div>
+  </div></section>
+
+  <section data-hf-id="hf-54df" id="s4" class="scene"><div data-hf-id="hf-l41d" class="fill"></div><div data-hf-id="hf-qo8t" class="wash tr"></div><div data-hf-id="hf-hf5x" class="content">
+    <div data-hf-id="hf-1043"><div data-hf-id="hf-7u1c" class="eyebrow"><i data-hf-id="hf-1brz" class="dot"></i>One control · every chart</div><h2 data-hf-id="hf-e7qr" class="title" style="margin-top:18px"><span data-hf-id="hf-eaa5" class="block">天 / 周 / 月，</span><span data-hf-id="hf-ncwz" class="block blue">同步联动</span></h2></div>
+    <div data-hf-id="hf-7x0p" class="dash-wrap">
+      <div data-hf-id="hf-zhu3" class="segment"><i data-hf-id="hf-modeglide" class="segment-glider"></i><span data-hf-id="hf-mz1h" class="day-label">天</span><span data-hf-id="hf-6mln" class="week-label">周</span><span data-hf-id="hf-ru6j" class="month-label">月</span></div>
+      <div data-hf-id="hf-47ir" class="browser dash-browser"><div data-hf-id="hf-zx1w" class="dots"><i data-hf-id="hf-wt6k"></i><i data-hf-id="hf-zeb8"></i><i data-hf-id="hf-y7e5"></i></div><img data-hf-id="hf-1gb9" src="assets/analysis.png" alt=""></div>
+      <div data-hf-id="hf-zoqb" class="morph-card panel">
+        <div data-hf-id="hf-rgvh" class="morph-head"><b data-hf-id="hf-zqi2">访问趋势</b><span data-hf-id="hf-o06v">上方切换 · 下方数据同步更新</span></div>
+        <div data-hf-id="hf-modestage" class="mode-stage">
+          <div data-hf-id="hf-modeday" class="mode-layer mode-day"><div data-hf-id="hf-daybars" class="mode-bars day" id="trend-day"></div><div data-hf-id="hf-dayaxis" class="mode-axis axis-day mono"><span>00时</span><span>06时</span><span>12时</span><span>18时</span><span>23时</span></div></div>
+          <div data-hf-id="hf-modeweek" class="mode-layer mode-week"><div data-hf-id="hf-weekbars" class="mode-bars week" id="trend-week"></div><div data-hf-id="hf-weekaxis" class="mode-axis axis-week"><span>周一</span><span>周二</span><span>周三</span><span>周四</span><span>周五</span><span>周六</span><span>周日</span></div></div>
+          <div data-hf-id="hf-modemonth" class="mode-layer mode-month"><div data-hf-id="hf-monthbars" class="mode-bars month" id="trend-month"></div><div data-hf-id="hf-monthaxis" class="mode-axis axis-month mono"><span>1日</span><span>5日</span><span>10日</span><span>15日</span><span>20日</span><span>25日</span><span>31日</span></div></div>
+        </div>
+      </div>
+      <div data-hf-id="hf-5abn" class="sync-chips"><span data-hf-id="hf-v987">趋势图</span><span data-hf-id="hf-awtl">热力图</span><span data-hf-id="hf-qosf">TOP 5</span></div>
+    </div>
+  </div></section>
+
+  <section data-hf-id="hf-yynm" id="s5" class="scene"><div data-hf-id="hf-kpqc" class="fill"></div><div data-hf-id="hf-v4q9" class="grid-bg"></div><div data-hf-id="hf-k7b4" class="content">
+    <div data-hf-id="hf-1ef4"><div data-hf-id="hf-lgpb" class="eyebrow"><i data-hf-id="hf-2ip2" class="dot"></i>Calendar as controller</div><h2 data-hf-id="hf-em1s" class="title" style="margin-top:18px"><span data-hf-id="hf-dvks" class="block">点击日期，</span><span data-hf-id="hf-vtag" class="block blue">回到那一天</span></h2></div>
+    <div data-hf-id="hf-vf74" class="calendar-world" style="position:relative">
+      <div data-hf-id="hf-za72" class="cal panel"><div data-hf-id="hf-8a63" class="cal-head"><span data-hf-id="hf-gmvc">‹</span><b data-hf-id="hf-wqhv">2025年5月</b><span data-hf-id="hf-ffy9">›</span></div><div data-hf-id="hf-4bkh" class="cal-week"><span data-hf-id="hf-9vjn">一</span><span data-hf-id="hf-m6on">二</span><span data-hf-id="hf-73eg">三</span><span data-hf-id="hf-8nm6">四</span><span data-hf-id="hf-j08f">五</span><span data-hf-id="hf-ysv8">六</span><span data-hf-id="hf-trik">日</span></div><div data-hf-id="hf-irci" class="cal-grid" id="cal-grid"></div></div>
+      <div data-hf-id="hf-9ba4" class="downstream">
+        <div data-hf-id="hf-si31" class="down-card panel"><h3 data-hf-id="hf-4p07">当天访问趋势 · 24小时</h3><div data-hf-id="hf-449l" class="mini-trend" id="mini-trend"></div></div>
+        <div data-hf-id="hf-j5j5" class="down-card panel"><h3 data-hf-id="hf-6py7">本月浏览热力图</h3><div data-hf-id="hf-82dm" class="mini-heat" id="mini-heat"></div></div>
+        <div data-hf-id="hf-kcg8" class="down-card panel"><h3 data-hf-id="hf-mtqt">热门域名 TOP 5</h3><div data-hf-id="hf-e83f" class="mini-ranks" id="mini-ranks"></div></div>
+      </div>
+      <div data-hf-id="hf-544y" class="pulse-ring"></div><div data-hf-id="hf-r4wp" class="connector"></div>
+    </div>
+  </div></section>
+
+  <section data-hf-id="hf-v0jl" id="s6" class="scene"><div data-hf-id="hf-kbfb" class="fill"></div><div data-hf-id="hf-7451" class="wash bl"></div><div data-hf-id="hf-jt03" class="content">
+    <div data-hf-id="hf-t4nu" class="split-head"><div data-hf-id="hf-c4s8"><div data-hf-id="hf-52ei" class="eyebrow"><i data-hf-id="hf-24e1" class="dot"></i>Habits &amp; attention</div><h2 data-hf-id="hf-btwl" class="title" style="margin-top:18px"><span data-hf-id="hf-fwvv" class="block">习惯与注意力，</span><span data-hf-id="hf-4clw" class="block blue">一眼可见</span></h2></div><span data-hf-id="hf-g2sn" class="pill">少 → 多</span></div>
+    <div data-hf-id="hf-ixnp" class="insight-grid"><div data-hf-id="hf-3o0o" class="heat-panel panel" style="position:relative"><div data-hf-id="hf-841h" class="card-head"><b data-hf-id="hf-ywhu">GitHub 式浏览热力图</b><span data-hf-id="hf-mvo1">近 18 周 · 单色强度</span></div><div data-hf-id="hf-iw3i" class="heat-months"><span data-hf-id="hf-dqgj">2月</span><span data-hf-id="hf-rsvu">3月</span><span data-hf-id="hf-7j0l">4月</span><span data-hf-id="hf-sxwc">5月</span></div><div data-hf-id="hf-heatbody" class="heat-body"><div data-hf-id="hf-heatdays" class="heat-days"><span>一</span><span></span><span>三</span><span></span><span>五</span><span></span><span>日</span></div><div data-hf-id="hf-o8tc" class="heat-grid" id="heat-grid"></div></div><div data-hf-id="hf-3iss" class="heat-detail"><b data-hf-id="hf-x7au">5月16日 · 周五</b><span data-hf-id="hf-ilgt">286 次访问</span></div></div>
+      <div data-hf-id="hf-1w5l" class="rank-panel panel"><div data-hf-id="hf-wzhl" class="card-head"><b data-hf-id="hf-q04s">热门域名 TOP 5</b><span data-hf-id="hf-8ak5">访问次数</span></div><div data-hf-id="hf-1vb3" class="rank-list">
+        <div data-hf-id="hf-tiv1" class="rank-row"><span data-hf-id="hf-zp82" class="rank-no">01</span><span data-hf-id="hf-qmgl">github.com</span><div data-hf-id="hf-eqc8" class="rank-track"><div data-hf-id="hf-hde4" class="rank-fill" style="width:100%"></div></div><span data-hf-id="hf-k2e3" class="rank-count mono">612</span></div>
+        <div data-hf-id="hf-23td" class="rank-row"><span data-hf-id="hf-03j3" class="rank-no">02</span><span data-hf-id="hf-bwoq">zhihu.com</span><div data-hf-id="hf-o4ds" class="rank-track"><div data-hf-id="hf-9cpi" class="rank-fill" style="width:76%"></div></div><span data-hf-id="hf-ndq8" class="rank-count mono">468</span></div>
+        <div data-hf-id="hf-3aqg" class="rank-row"><span data-hf-id="hf-0hu4" class="rank-no">03</span><span data-hf-id="hf-ij7y">bilibili.com</span><div data-hf-id="hf-mxgp" class="rank-track"><div data-hf-id="hf-1n0l" class="rank-fill" style="width:64%"></div></div><span data-hf-id="hf-lhl4" class="rank-count mono">392</span></div>
+        <div data-hf-id="hf-2wff" class="rank-row"><span data-hf-id="hf-0w55" class="rank-no">04</span><span data-hf-id="hf-6kdl">stackoverflow</span><div data-hf-id="hf-nbrq" class="rank-track"><div data-hf-id="hf-2vze" class="rank-fill" style="width:47%"></div></div><span data-hf-id="hf-4cs9" class="rank-count mono">287</span></div>
+        <div data-hf-id="hf-0wwa" class="rank-row"><span data-hf-id="hf-1ag6" class="rank-no">05</span><span data-hf-id="hf-2cxf">baidu.com</span><div data-hf-id="hf-m4un" class="rank-track"><div data-hf-id="hf-jfuz" class="rank-fill" style="width:39%"></div></div><span data-hf-id="hf-lm7n" class="rank-count mono">241</span></div>
+      </div></div></div>
+  </div></section>
+
+  <section data-hf-id="hf-u8vs" id="s7" class="scene"><div data-hf-id="hf-jx4a" class="fill"></div><div data-hf-id="hf-jep2" class="content">
+    <div data-hf-id="hf-bqh7"><div data-hf-id="hf-xpop" class="eyebrow"><i data-hf-id="hf-3bb4" class="dot"></i>BetterHistory precision</div><h2 data-hf-id="hf-c87m" class="title" style="margin-top:18px"><span data-hf-id="hf-8dhi" class="block">不是翻列表，</span><span data-hf-id="hf-e1cz" class="block blue">而是精准找到</span></h2></div>
+    <div data-hf-id="hf-k22l" class="history-wrap">
+      <div data-hf-id="hf-h327" class="browser history-browser"><div data-hf-id="hf-2trg" class="dots"><i data-hf-id="hf-ylp6"></i><i data-hf-id="hf-0l8b"></i><i data-hf-id="hf-0zjc"></i></div><img data-hf-id="hf-dp97" src="assets/history.png" alt=""></div>
+      <div data-hf-id="hf-pwj0" class="search-box"><div data-hf-id="hf-searchinput" class="search-input"><span data-hf-id="hf-searchplaceholder" class="search-placeholder">搜索标题、网址或关键词</span><span data-hf-id="hf-q1" class="query-char">人</span><span data-hf-id="hf-q2" class="query-char">工</span><span data-hf-id="hf-q3" class="query-char">智</span><span data-hf-id="hf-q4" class="query-char">能</span><span data-hf-id="hf-cxfd" class="cursor">|</span></div><button data-hf-id="hf-searchsubmit" class="search-submit">搜索 ↵</button></div>
+      <div data-hf-id="hf-historyresults" class="history-results">
+        <div data-hf-id="hf-allstate" class="result-state all-state">
+          <div data-hf-id="hf-allhead" class="results-head"><b>今天 · 全部历史</b><span class="mono">248 条</span></div>
+          <div class="history-row"><span class="row-icon">G</span><div class="row-copy"><b>Webtrail · 可视化浏览历史</b><span>github.com/billoowssun/webtrail</span></div><span class="row-time mono">16:42</span></div>
+          <div class="history-row"><span class="row-icon">菜</span><div class="row-copy"><b>番茄牛腩家常做法</b><span>xiachufang.com/recipe/104...</span></div><span class="row-time mono">15:18</span></div>
+          <div class="history-row"><span class="row-icon">程</span><div class="row-copy"><b>Chrome Extensions API Reference</b><span>developer.chrome.com/docs/extensions</span></div><span class="row-time mono">14:26</span></div>
+          <div class="history-row"><span class="row-icon">旅</span><div class="row-copy"><b>杭州周末路线与交通攻略</b><span>map.baidu.com/travel/hangzhou</span></div><span class="row-time mono">13:07</span></div>
+          <div class="history-row"><span class="row-icon">影</span><div class="row-copy"><b>年度高分纪录片片单</b><span>movie.douban.com/chart</span></div><span class="row-time mono">11:54</span></div>
+          <div class="history-row"><span class="row-icon">邮</span><div class="row-copy"><b>项目发布计划确认</b><span>outlook.live.com/mail/inbox</span></div><span class="row-time mono">10:31</span></div>
+        </div>
+        <div data-hf-id="hf-filteredstate" class="result-state filtered-state">
+          <div data-hf-id="hf-filterhead" class="results-head"><b>关键词「人工智能」</b><span class="mono">3 个相关结果</span></div>
+          <div class="history-row"><span class="row-icon">知</span><div class="row-copy"><b>人工智能学习路线：从基础到项目</b><span>zhihu.com · 搜索词命中标题与摘要</span></div><span class="row-time mono">10:35</span></div>
+          <div class="history-row"><span class="row-icon">百</span><div class="row-copy"><b>人工智能发展报告 2025</b><span>baidu.com · 搜索词命中页面正文</span></div><span class="row-time mono">09:48</span></div>
+          <div class="history-row"><span class="row-icon">G</span><div class="row-copy"><b>awesome-artificial-intelligence</b><span>github.com · 收藏过的 AI 项目清单</span></div><span class="row-time mono">昨天</span></div>
+        </div>
+      </div>
+      <div data-hf-id="hf-lhc1" class="filters"><span data-hf-id="hf-mfhg" class="pill">日期</span><span data-hf-id="hf-9eys" class="pill">域名</span><span data-hf-id="hf-03le" class="pill">类型</span><span data-hf-id="hf-shpg" class="pill">关键词</span></div>
+      <div data-hf-id="hf-initialbadge" class="result-badge initial-badge mono">248 条历史记录</div><div data-hf-id="hf-filteredbadge" class="result-badge filtered-badge mono">3 个相关结果</div>
+    </div>
+  </div></section>
+
+  <section data-hf-id="hf-yv67" id="s8" class="scene"><div data-hf-id="hf-jit9" class="fill"></div><div data-hf-id="hf-rv5w" class="wash tr"></div><div data-hf-id="hf-gckn" class="content final">
+    <div data-hf-id="hf-x6k0" class="final-brand"><img data-hf-id="hf-3rq4" src="assets/webtrail-icon-final.png" alt=""><b data-hf-id="hf-3pev">Webtrail</b></div>
+    <div data-hf-id="hf-oqn9" class="vault-stage"><div data-hf-id="hf-2f7w" class="vault"><div data-hf-id="hf-ixsx" class="vault-door"><div data-hf-id="hf-ajrw" class="vault-lock"></div></div></div><div data-hf-id="hf-lt0g" class="shield">✓</div><div data-hf-id="hf-970x" id="archive-nodes"></div></div>
+    <span data-hf-id="hf-xbps" class="pill privacy">永久本地归档 · 不上传</span>
+    <h2 data-hf-id="hf-2l5r"><span data-hf-id="hf-4l0x" class="block">让历史真正</span><span data-hf-id="hf-mxw6" class="block blue">为你所用</span></h2>
+    <p data-hf-id="hf-qjdl" class="final-copy">可视化洞察与精确历史检索，一处完成。</p>
+    <div data-hf-id="hf-y3cd" class="final-products"><div data-hf-id="hf-vw7x" class="final-card fc1"><img data-hf-id="hf-eb3a" src="assets/analysis-final.png" alt=""></div><div data-hf-id="hf-zuby" class="final-card fc2"><img data-hf-id="hf-vrsc" src="assets/history-final.png" alt=""></div></div>
+  </div></section>
+</div>
+
+<script>
+  window.__timelines=window.__timelines||{};
+  var dayVisits=[1,0,0,0,0,1,2,4,8,22,27,29,10,8,23,30,33,29,25,14,9,6,3,2];
+  var weekVisits=[238,261,247,274,253,118,91];
+  var monthVisits=[224,239,116,82,253,269,248,277,264,128,94,281,296,276,304,286,135,101,291,315,298,323,307,149,108,312,334,309,342,326,154];
+  function addBars(hostId,data,className,activeIndex){
+    var host=document.getElementById(hostId);
+    var max=Math.max.apply(null,data);
+    data.forEach(function(v,i){
+      var e=document.createElement("i");
+      e.className=(className||"")+(i===activeIndex?" active":"");
+      e.style.height=Math.max(2,Math.round(v/max*94))+"%";
+      host.appendChild(e);
+    });
+  }
+  addBars("hour-bars",dayVisits,"hour-bar",16);
+  addBars("trend-day",dayVisits,"",16);
+  addBars("trend-week",weekVisits,"",-1);
+  addBars("trend-month",monthVisits,"",15);
+  var cal=document.getElementById("cal-grid");
+  for(var d=1;d<=35;d++){var cd=document.createElement("span");cd.className="cal-day"+(d===16?" sel":"");cd.textContent=d<=31?d:"";cal.appendChild(cd)}
+  var miniTrend=document.getElementById("mini-trend");
+  dayVisits.forEach(function(v,i){var x=document.createElement("i");x.className=(i===12||i===13)?"lunch":(i===16?"peak":"");x.style.height=Math.max(3,Math.round(v/33*94))+"%";miniTrend.appendChild(x)});
+  var miniHeatValues=[0,1,2,2,1,0,0,1,2,3,2,2,1,0,2,3,2,4,3,1,0,1,2,4,3,2,0,1,2,4,3,4,2,1,0];
+  var miniHeat=document.getElementById("mini-heat");
+  miniHeatValues.forEach(function(v){var x=document.createElement("i");x.className="l"+v;miniHeat.appendChild(x)});
+  var rankData=[["GitHub",100,62],["知乎",76,47],["哔哩哔哩",64,39],["Stack",47,29],["百度",39,24]];
+  var miniRanks=document.getElementById("mini-ranks");
+  rankData.forEach(function(row){var item=document.createElement("div");item.className="mini-rank-row";item.innerHTML="<span>"+row[0]+"</span><div class=\"mini-rank-track\"><i class=\"mini-rank-fill\" style=\"width:"+row[1]+"%\"></i></div><b class=\"mono\">"+row[2]+"</b>";miniRanks.appendChild(item)});
+  var heat=document.getElementById("heat-grid");
+  var heatWeeks=[
+    [0,2,1,3,2,0,0],[1,3,2,2,3,1,0],[2,2,4,3,1,0,1],[1,4,3,2,3,1,0],
+    [2,3,2,4,2,0,1],[0,2,3,1,4,2,0],[1,3,4,2,2,1,0],[2,2,3,4,3,0,1],
+    [1,4,2,3,4,1,0],[2,3,4,1,3,2,0],[0,2,3,4,2,1,1],[1,4,3,2,4,0,0],
+    [2,3,2,4,3,1,0],[1,2,4,3,2,0,1],[2,4,3,4,1,2,0],[1,3,4,2,4,1,0],
+    [2,4,3,3,4,0,1],[1,3,4,2,4,1,0]
+  ];
+  heatWeeks.forEach(function(week,wi){week.forEach(function(v,di){var hc=document.createElement("i");hc.className="heat-cell l"+v+(wi===15&&di===4?" highlight":"");heat.appendChild(hc)})});
+  var archive=document.getElementById("archive-nodes");
+  for(var n=0;n<18;n++){var node=document.createElement("i");node.className="archive-node";node.style.left=(30+(n*47)%850)+"px";node.style.top=(20+(n*83)%270)+"px";archive.appendChild(node)}
+
+  var tl=gsap.timeline({paused:true});
+  tl.addLabel("b1",0)
+    .fromTo(".brand",{opacity:0,x:-42},{opacity:1,x:0,duration:.48,ease:"expo.out"},"b1+=.18")
+    .fromTo("#s1 .eyebrow",{opacity:0,y:-24},{opacity:1,y:0,duration:.34,ease:"power3.out"},"b1+=.42")
+    .fromTo("#s1 .hero span",{opacity:0,x:90},{opacity:1,x:0,duration:.55,stagger:.13,ease:"power4.out"},"b1+=.68")
+    .to(".trail-path",{strokeDashoffset:0,duration:2.4,ease:"power2.inOut"},"b1+=.85")
+    .fromTo(".visit-card",{opacity:0,scale:.72,rotation:-4},{opacity:1,scale:1,rotation:0,duration:.42,stagger:.22,ease:"back.out(1.3)"},"b1+=1.08")
+    .fromTo(".trail-node",{opacity:0,x:45,y:55},{opacity:1,x:760,y:380,duration:2.3,ease:"power1.inOut"},"b1+=1.0")
+    .fromTo(".s1-meta",{opacity:0,y:28},{opacity:1,y:0,duration:.44,ease:"sine.out"},"b1+=2.75")
+    .to("#s1 .wash",{scale:1.1,duration:3.4,ease:"sine.inOut"},"b1+=.2");
+
+  tl.set("#s2",{opacity:1},3.62).fromTo("#s2",{x:1080},{x:0,duration:.56,ease:"power3.inOut"},3.62).set("#s1",{visibility:"hidden"},4.18)
+    .fromTo("#s2 .eyebrow",{opacity:0,x:-36},{opacity:1,x:0,duration:.34,ease:"expo.out"},4.08)
+    .fromTo("#s2 .title span",{opacity:0,y:52},{opacity:1,y:0,duration:.48,stagger:.1,ease:"power4.out"},4.22)
+    .fromTo(".big-number",{opacity:0,scale:.6},{opacity:1,scale:1,duration:.62,ease:"back.out(1.25)"},4.3)
+    .fromTo(".one-card",{opacity:0,y:70},{opacity:1,y:0,duration:.56,ease:"power3.out"},4.72)
+    .fromTo(".flat-line .single",{scaleY:0},{scaleY:1,duration:.52,ease:"expo.out"},5.3)
+    .fromTo(".one-value b",{opacity:0,y:24},{opacity:1,y:0,duration:.48,ease:"power3.out"},5.05)
+    .fromTo(".question",{opacity:0,x:-45},{opacity:1,x:0,duration:.5,ease:"sine.out"},6.38);
+
+  tl.set("#s3",{opacity:1},8.08).fromTo("#s3",{clipPath:"inset(50% 0 50% 0)"},{clipPath:"inset(0% 0 0% 0)",duration:.62,ease:"expo.inOut"},8.08).set("#s2",{visibility:"hidden"},8.70)
+    .fromTo("#s3 .eyebrow",{opacity:0,y:-25},{opacity:1,y:0,duration:.3,ease:"power3.out"},8.48)
+    .fromTo("#s3 .title span",{opacity:0,x:-60},{opacity:1,x:0,duration:.46,stagger:.11,ease:"power4.out"},8.58)
+    .fromTo("#s3 .pill",{opacity:0,scale:.8},{opacity:1,scale:1,duration:.38,ease:"back.out(1.2)"},8.72)
+    .fromTo(".hour-chart",{opacity:0,y:60},{opacity:1,y:0,duration:.5,ease:"expo.out"},9.0)
+    .fromTo(".hour-bar",{scaleY:0},{scaleY:1,duration:.7,stagger:.035,ease:"power3.out"},9.32)
+    .fromTo(".scan-line",{opacity:0,x:18},{opacity:.55,x:638,duration:2.1,ease:"power2.inOut"},10.1)
+    .fromTo(".hour-tooltip",{opacity:0,scale:.75,x:590,y:86},{opacity:1,scale:1,x:590,y:86,duration:.45,ease:"back.out(1.25)"},11.65)
+    .to(".hour-bar.active",{scaleY:1.08,duration:.28,yoyo:true,repeat:1,ease:"sine.inOut"},12.0);
+
+  tl.set("#s4",{opacity:1},13.90).set("#s3",{visibility:"hidden"},13.90)
+    .fromTo("#s4 .eyebrow",{opacity:0,x:38},{opacity:1,x:0,duration:.32,ease:"expo.out"},14.08)
+    .fromTo("#s4 .title span",{opacity:0,y:55},{opacity:1,y:0,duration:.48,stagger:.12,ease:"power4.out"},14.18)
+    .fromTo(".dash-browser",{opacity:0,y:80,rotation:-3},{opacity:1,y:0,rotation:0,duration:.68,ease:"power3.out"},14.48)
+    .to(".dash-browser img",{scale:1.035,x:-18,duration:6.5,ease:"none"},14.62)
+    .fromTo(".segment",{opacity:0,scale:.8},{opacity:1,scale:1,duration:.42,ease:"back.out(1.2)"},14.72)
+    .fromTo(".morph-card",{opacity:0,y:65},{opacity:1,y:0,duration:.5,ease:"expo.out"},15.1)
+    .fromTo(".mode-day .mode-bars i",{scaleY:0},{scaleY:1,duration:.55,stagger:.018,ease:"power3.out"},15.42)
+    .fromTo(".sync-chips span",{opacity:0,x:30},{opacity:1,x:0,duration:.3,stagger:.1,ease:"power2.out"},15.72);
+  tl.fromTo(".segment-glider",{x:0},{x:92,duration:.38,ease:"power3.inOut",immediateRender:false},16.96)
+    .to(".day-label",{color:"#5f687a",duration:.2},16.98)
+    .to(".week-label",{color:"#ffffff",duration:.2},16.98)
+    .to(".mode-day",{autoAlpha:0,x:-54,scale:.94,duration:.34,ease:"power2.inOut"},16.96)
+    .fromTo(".mode-week",{autoAlpha:0,x:62,scale:1.08},{autoAlpha:1,x:0,scale:1,duration:.4,ease:"power3.out",immediateRender:false},17.04)
+    .fromTo(".mode-week .mode-bars i",{scaleY:.12},{scaleY:1,duration:.5,stagger:.045,ease:"power3.out",immediateRender:false},17.08)
+    .to(".sync-chips span",{scale:1.08,duration:.2,yoyo:true,repeat:1,stagger:.09,ease:"sine.inOut"},17.15)
+    .fromTo(".segment-glider",{x:92},{x:184,duration:.38,ease:"power3.inOut",immediateRender:false},18.76)
+    .to(".week-label",{color:"#5f687a",duration:.2},18.78)
+    .to(".month-label",{color:"#ffffff",duration:.2},18.78)
+    .fromTo(".mode-week",{autoAlpha:1,x:0,scale:1},{autoAlpha:0,x:-54,scale:.9,duration:.34,ease:"power2.inOut",immediateRender:false},18.76)
+    .fromTo(".mode-month",{autoAlpha:0,x:65,scale:1.1},{autoAlpha:1,x:0,scale:1,duration:.42,ease:"power3.out",immediateRender:false},18.84)
+    .fromTo(".mode-month .mode-bars i",{scaleY:.12},{scaleY:1,duration:.55,stagger:.014,ease:"power3.out",immediateRender:false},18.88)
+    .to(".sync-chips span",{backgroundColor:"#edf4ff",duration:.25,stagger:.08,ease:"sine.inOut"},19.22);
+
+  tl.set("#s5",{opacity:1},21.38).fromTo("#s5",{clipPath:"circle(0% at 26% 56%)"},{clipPath:"circle(120% at 26% 56%)",duration:.72,ease:"power3.inOut"},21.38).set("#s4",{visibility:"hidden"},22.10)
+    .fromTo("#s5 .eyebrow",{opacity:0,x:-35},{opacity:1,x:0,duration:.32,ease:"expo.out"},21.82)
+    .fromTo("#s5 .title span",{opacity:0,y:48},{opacity:1,y:0,duration:.44,stagger:.1,ease:"power4.out"},21.92)
+    .fromTo(".cal",{opacity:0,scale:.84},{opacity:1,scale:1,duration:.5,ease:"back.out(1.18)"},22.22)
+    .fromTo(".down-card",{opacity:0,x:55},{opacity:1,x:0,duration:.4,stagger:.12,ease:"power3.out"},22.48)
+    .fromTo(".cal-day.sel",{scale:.45},{scale:1,duration:.5,ease:"back.out(1.5)"},23.05)
+    .fromTo(".pulse-ring",{opacity:.7,scale:.4,x:154,y:360},{opacity:0,scale:4.8,x:154,y:360,duration:1.05,ease:"power2.out"},23.12)
+    .fromTo(".connector",{scaleX:0,x:360,y:388,width:300},{scaleX:1,x:360,y:388,width:300,duration:.55,ease:"expo.out"},23.2)
+    .fromTo(".mini-trend i",{scaleY:.12},{scaleY:1,duration:.5,stagger:.018,ease:"power3.out"},23.46)
+    .fromTo(".mini-heat i",{opacity:.15,scale:.55},{opacity:1,scale:1,duration:.28,stagger:.012,ease:"power2.out"},23.58)
+    .fromTo(".mini-rank-fill",{scaleX:0},{scaleX:1,duration:.5,stagger:.055,ease:"power3.out"},23.72)
+    .to(".down-card",{scale:1.025,duration:.2,yoyo:true,repeat:1,stagger:.12,ease:"sine.inOut"},24.1);
+
+  tl.set("#s6",{opacity:1},26.65).fromTo("#s6",{x:1080},{x:0,duration:.58,ease:"power3.out"},26.65).set("#s5",{visibility:"hidden"},27.23)
+    .fromTo("#s6 .eyebrow",{opacity:0,y:-24},{opacity:1,y:0,duration:.3,ease:"expo.out"},27.02)
+    .fromTo("#s6 .title span",{opacity:0,x:-55},{opacity:1,x:0,duration:.42,stagger:.1,ease:"power4.out"},27.12)
+    .fromTo(".heat-panel",{opacity:0,y:45},{opacity:1,y:0,duration:.42,ease:"power3.out"},27.42)
+    .fromTo(".heat-cell",{opacity:0,scale:.1},{opacity:1,scale:1,duration:.2,stagger:.008,ease:"power2.out"},27.62)
+    .fromTo(".heat-detail",{opacity:0,scale:.7,x:565,y:205},{opacity:1,scale:1,x:565,y:205,duration:.4,ease:"back.out(1.25)"},28.7)
+    .fromTo(".rank-panel",{opacity:0,y:52},{opacity:1,y:0,duration:.42,ease:"expo.out"},29.05)
+    .fromTo(".rank-fill",{scaleX:0},{scaleX:1,duration:.72,stagger:.09,ease:"power3.out"},29.35)
+    .fromTo(".rank-no,.rank-count",{opacity:0,x:-18},{opacity:1,x:0,duration:.3,stagger:.055,ease:"power2.out"},29.5);
+
+  tl.set("#s7",{opacity:1},32.67).fromTo("#s7",{y:1440},{y:0,duration:.62,ease:"power3.inOut"},32.67).set("#s6",{visibility:"hidden"},33.29)
+    .fromTo("#s7 .eyebrow",{opacity:0,x:34},{opacity:1,x:0,duration:.28,ease:"expo.out"},33.0)
+    .fromTo("#s7 .title span",{opacity:0,y:44},{opacity:1,y:0,duration:.4,stagger:.08,ease:"power4.out"},33.08)
+    .fromTo(".history-browser",{opacity:0,scale:.91},{opacity:1,scale:1,duration:.5,ease:"power3.out"},33.34)
+    .fromTo(".history-results",{opacity:0,y:35},{opacity:1,y:0,duration:.42,ease:"power3.out"},33.42)
+    .fromTo(".all-state .history-row",{opacity:0,x:-28},{opacity:1,x:0,duration:.24,stagger:.035,ease:"power2.out"},33.5)
+    .fromTo(".search-box",{opacity:0,y:-20},{opacity:1,y:0,duration:.34,ease:"back.out(1.15)"},33.48)
+    .to(".search-placeholder",{opacity:0,duration:.12,ease:"none"},33.62)
+    .fromTo(".query-char",{opacity:0,y:8,width:0},{opacity:1,y:0,width:"1em",duration:.12,stagger:.14,ease:"power2.out"},33.78)
+    .to(".cursor",{opacity:0,duration:.1,ease:"none"},34.33)
+    .to(".search-submit",{scale:.9,backgroundColor:"#0f5fd7",duration:.11,ease:"power2.in"},34.43)
+    .to(".search-submit",{scale:1,backgroundColor:"#1769e8",duration:.18,ease:"back.out(1.8)"},34.54)
+    .fromTo(".all-state .history-row",{opacity:1,x:0},{opacity:0,x:-58,duration:.22,stagger:.025,ease:"power2.in",immediateRender:false},34.58)
+    .fromTo(".all-state .results-head",{opacity:1,y:0},{opacity:0,y:-12,duration:.18,ease:"power2.in",immediateRender:false},34.6)
+    .to(".all-state",{autoAlpha:0,duration:.01},34.88)
+    .fromTo(".filtered-state",{autoAlpha:0,y:28},{autoAlpha:1,y:0,duration:.32,ease:"power3.out",immediateRender:false},34.86)
+    .fromTo(".filtered-state .history-row",{opacity:0,x:42},{opacity:1,x:0,duration:.28,stagger:.075,ease:"power3.out",immediateRender:false},34.94)
+    .to(".initial-badge",{autoAlpha:0,x:20,duration:.2,ease:"power2.in"},34.76)
+    .fromTo(".filtered-badge",{autoAlpha:0,x:22},{autoAlpha:1,x:0,duration:.28,ease:"expo.out",immediateRender:false},34.96)
+    .fromTo(".filters .pill",{opacity:0,y:25},{opacity:1,y:0,duration:.28,stagger:.065,ease:"power3.out"},35.02);
+
+  tl.set("#s8",{opacity:1},36.05).fromTo("#s8",{y:1440},{y:0,duration:.55,ease:"sine.inOut"},36.05).set("#s7",{visibility:"hidden"},36.60)
+    .fromTo(".final-brand",{opacity:0,scale:.75},{opacity:1,scale:1,duration:.42,ease:"back.out(1.25)"},36.35)
+    .fromTo(".archive-node",{opacity:0,scale:.3},{opacity:1,scale:1,duration:.25,stagger:.03,ease:"power2.out"},36.42)
+    .to(".archive-node",{x:430,y:150,scale:.25,duration:.95,stagger:.018,ease:"power3.in"},36.7)
+    .fromTo(".vault",{opacity:0,scale:.75},{opacity:1,scale:1,duration:.45,ease:"back.out(1.15)"},36.48)
+    .fromTo(".shield",{opacity:0,scale:.6,rotation:-18},{opacity:1,scale:1,rotation:0,duration:.5,ease:"back.out(1.3)"},37.12)
+    .fromTo(".privacy",{opacity:0,y:20},{opacity:1,y:0,duration:.35,ease:"expo.out"},37.24)
+    .fromTo("#s8 h2 span",{opacity:0,y:42},{opacity:1,y:0,duration:.42,stagger:.09,ease:"power4.out"},37.42)
+    .fromTo(".final-copy",{opacity:0},{opacity:1,duration:.42,ease:"sine.out"},37.82)
+    .fromTo(".fc1",{opacity:0,x:-120,rotation:-5},{opacity:1,x:0,rotation:-3,duration:.55,ease:"power3.out"},38.0)
+    .fromTo(".fc2",{opacity:0,x:120,rotation:5},{opacity:1,x:0,rotation:3,duration:.55,ease:"power3.out"},38.08)
+    .to(".final-products",{y:-18,duration:1.5,ease:"sine.inOut"},38.2);
+
+  window.__timelines["webtrail-promo-v2"]=tl;
+</script>
+</body>
+</html>

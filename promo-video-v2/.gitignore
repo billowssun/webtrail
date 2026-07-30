@@ -1,0 +1,5 @@
+.thumbnails/
+.waveform-cache/
+snapshots/
+renders/*
+!renders/webtrail-promo-v2-refined-3x4.mp4
