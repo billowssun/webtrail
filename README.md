@@ -1,3 +1,7 @@
+<!-- project-overview:start -->
+> **项目简介**：本地优先的 Chrome 历史归档扩展，提供永久归档、搜索筛选、访问统计及 CSV 导出。
+<!-- project-overview:end -->
+
 # Webtrail
 
 Webtrail 是一个本地优先的 Chrome 永久历史记录插件。它接管 `chrome://history`，把 Chrome 当前仍可访问的历史导入本地 IndexedDB，之后持续归档新访问。即使从 Chrome 原生历史中删除记录，Webtrail 归档仍会保留，除非你明确执行“从永久归档删除”。
